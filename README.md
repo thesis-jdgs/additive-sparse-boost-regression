@@ -62,8 +62,8 @@ sparsereg.plot_model_information()
 Which creates a figure of the iteration history and model complexity for each feature,
 like the following:
 
-[images/iteration_history.png](images/iteration_history.png)
-[images/model_complexity.png](images/model_complexity.png)
+![Iteration history](images/iteration_history.png)
+![Complexity](images/model_complexity.png)
 
 To inspect the predictions for a dataset `X`, you can use `explain(X)`:
 
@@ -73,8 +73,8 @@ sparsereg.explain(X)
 Which creates a figure of the mean importances of each feature,
 and a plot of the 1D regressor for each selected feature:
 
-[images/mean_importance.png](images/mean_importance.png)
-[images/1d_plots.png](images/1d_plots.png)
+![Mean Importances](images/mean_importance.png)
+![1D Plot Example](images/1d_plot.png)
 
 We can also decompose the predictions into the additive components,
 with the `contribution_frame` method:
