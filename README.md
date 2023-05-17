@@ -63,7 +63,7 @@ Which creates a figure of the iteration history and model complexity for each fe
 like the following:
 
 ![Iteration history](images/iteration_history.png)
-![Complexity](images/model_complexity.png)
+![Complexity](images/complexity.png)
 
 To inspect the predictions for a dataset `X`, you can use `explain(X)`:
 
