@@ -36,9 +36,12 @@ def absolute_correlation_matrix(X: np.ndarray) -> np.ndarray:
     Returns
     -------
     np.ndarray
-        The absolute value of each entry on the correlation matrix.
+        The absolute value of each entry on the correlation matrix,
+        except the diagonal, which is zero.
     """
-    return np.abs(np.corrcoef(X, rowvar=False))
+    C = np.abs(np.corrcoef(X, rowvar=False))
+    C[np.diag_indices_from(C)] = 0
+    return C
 
 
 # mRMR scheme

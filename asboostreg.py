@@ -1,36 +1,34 @@
 """Implement the additive sparse boosting regressor."""
 from __future__ import annotations
 
-# Standard library imports
-import collections
 import contextlib
 import warnings
-from typing import Optional
 
-# Third party imports
 import attrs
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
-from sklearn.base import BaseEstimator, RegressorMixin
+from sklearn.base import BaseEstimator
+from sklearn.base import RegressorMixin
 from sklearn.exceptions import NotFittedError
 from sklearn.model_selection import train_test_split
 
-# Local application imports
-from model_helpers.custom_types import (
-    OneVectorFunction,
-    TwoVectorFunction,
-    Data,
-    Target,
-)
-from model_helpers.mrmr_functions import (
-    absolute_correlation_matrix,
-    f_regression_score,
-)
-from model_helpers.plotting import plot_categorical, plot_continuous
+from model_helpers.custom_types import Data
+from model_helpers.custom_types import OneVectorFunction
+from model_helpers.custom_types import Target
+from model_helpers.custom_types import TwoVectorFunction
+from model_helpers.mrmr_functions import absolute_correlation_matrix
+from model_helpers.mrmr_functions import f_regression_score
+from model_helpers.od_tree import ListTreeRegressor
+from model_helpers.od_tree import sum_tree_regressors
+from model_helpers.plotting import plot_categorical
+from model_helpers.plotting import plot_continuous
 from model_helpers.preprocessor import TreePreprocessor
-from model_helpers.od_tree import ListTreeRegressor, sum_tree_regressors
+
+# Standard library imports
+# Third party imports
+# Local application imports
 
 # Python 3.11 compatibility
 with contextlib.suppress(ImportError):
@@ -98,7 +96,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     score_history_ : np.ndarray
         The history of the scores at each iteration. Contains the training and
         validation RMSE.
-    selection_count_ : collections.Counter
+    selection_count_ :  np.ndarray
         The number of times each feature was selected.
     selected_features_ : np.ndarray
         The indices of the selected features.
@@ -162,9 +160,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     intercept_: float = attrs.field(init=False, repr=False)
     selection_history_: np.ndarray = attrs.field(init=False, repr=False)
     score_history_: np.ndarray = attrs.field(init=False, repr=False)
-    selection_count_: collections.Counter = attrs.field(init=False, repr=False)
+    selection_count_: np.ndarray = attrs.field(init=False, repr=False)
     # Private attributes
-    _selected_count_matrix: np.ndarray = attrs.field(init=False, repr=False)
     _regressors: list[list[ListTreeRegressor]] = attrs.field(init=False, repr=False)
     _random_generator: np.random.Generator = attrs.field(init=False, repr=False)
     _n: int = attrs.field(init=False, repr=False)
@@ -194,7 +191,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         )
 
     def fit(
-        self, X: Data, y: Target, validation_set: Optional[tuple[Data, Target]] = None
+        self, X: Data, y: Target, validation_set: tuple[Data, Target] | None = None
     ) -> Self:
         """Fit a generalized additive model with sparse functions, that is to say,
             with features selected by mRMR.
@@ -248,9 +245,6 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             np.sqrt(self.score_history_, out=self.score_history_)
-        self.selection_count_ = collections.Counter(
-            self.feature_names_in_[self.selection_history_]
-        )
         self._is_fitted = True
         return self  # type: ignore
 
@@ -266,8 +260,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         if self.output_name is None:
             self.output_name = y.name if isinstance(y, pd.Series) else "output"
         self._regressors: list[list[ListTreeRegressor]] = [[] for _ in range(self._n)]
-        self._selected_count_matrix = np.zeros((self._n, self._n), dtype=float)
         self._indexing_cache = [None for _ in range(self._n)]
+        self.selection_count_ = np.zeros(self._n, dtype=np.float32)
 
     def _fit(
         self, X: np.ndarray, y: np.ndarray, X_val: np.ndarray, y_val: np.ndarray
@@ -279,14 +273,18 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         # First round
         self._boost(X, residual, 0.0, 0, X_val, residual_valid)
         # Initialize redundancy for the next rounds
-        redundancy_matrix = self.redundancy_matrix(X)
-        product = np.empty_like(redundancy_matrix)
-        redundancy = np.empty_like(X[0])
+        redundancy_matrix = self.redundancy_matrix(X).astype(np.float32)
+        redundancy = np.zeros_like(X[0])
         for model_count in range(1, self.n_estimators):
-            np.multiply(redundancy_matrix, self._selected_count_matrix, out=product)
-            np.sum(product, axis=1, out=redundancy)
-            redundancy /= model_count
-            self._boost(X, residual, redundancy, model_count, X_val, residual_valid)
+            redundancy += redundancy_matrix[self.selection_history_[model_count - 1]]
+            self._boost(
+                X,
+                residual,
+                redundancy / model_count,
+                model_count,
+                X_val,
+                residual_valid,
+            )
             if model_count >= self.n_iter_no_change:
                 last_iterations = self.score_history_[
                     model_count - self.n_iter_no_change : model_count, 1
@@ -310,12 +308,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         score = self.mrmr_scheme(relevancy, redundancy)
         selected_feature: int = np.argmax(score)  # type: ignore
         self.selection_history_[model_count] = selected_feature
-        # Update the count matrix
-        row = (selected_feature, slice(None))
-        col = (slice(None), selected_feature)
-        np.add.at(self._selected_count_matrix, row, 1.0)  # type: ignore
-        np.add.at(self._selected_count_matrix, col, 1.0)  # type: ignore
-        self._selected_count_matrix[selected_feature, selected_feature] = 0.0
+        self.selection_count_[selected_feature] += 1
         # Finding the selected feature
         X_selected = X[:, selected_feature]
         index = self._get_index(X, selected_feature)
@@ -572,9 +565,9 @@ def __main__(learning_rate: float = 0.5, n_estimators: int = 50, **kwargs) -> No
 
 if __name__ == "__main__":
     __main__(
-        n_estimators=10_000,
-        learning_rate=0.01,
+        n_estimators=1_000,
+        learning_rate=0.3,
         l2_regularization=2.0,
-        max_depth=6,
+        max_depth=4,
         random_state=0,
     )

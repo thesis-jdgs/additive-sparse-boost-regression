@@ -1,14 +1,14 @@
 """Implement a 1D regression tree."""
 from __future__ import annotations
 
-# Standard library imports
 import contextlib
-from typing import Optional
 
-# Third party imports
 import attrs
 import numba as nb
 import numpy as np
+
+# Standard library imports
+# Third party imports
 
 # Python 3.11 feature
 with contextlib.suppress(ImportError):
@@ -101,8 +101,8 @@ class ListTreeRegressor:
     learning_rate: float = attrs.field(default=1.0)
     is_selected: bool = attrs.field(default=True)
     # Model information
-    feature_name: Optional[str] = attrs.field(default=None)
-    output_name: Optional[str] = attrs.field(default=None)
+    feature_name: str | None = attrs.field(default=None)
+    output_name: str | None = attrs.field(default=None)
     # Learnt after fitting
     list_tree_: ListTree = attrs.field(init=False, repr=False)
 
@@ -181,6 +181,63 @@ class ListTreeRegressor:
         if self.is_selected:
             return len(self.list_tree_.split_values)
         return 0
+
+
+@attrs.define(slots=True)
+class MCListTreeRegressor:
+    """A 1D Monte Carlo Decision Tree Regressor.
+
+    Parameters
+    ----------
+    n_estimators : int
+        The number of trees in the ensemble.
+    random_generator : np.random.Generator
+        The random generator to use.
+    max_depth : int
+        The maximum depth of the list.
+    min_samples_split : int
+        The minimum number of samples required to split an internal node.
+    min_samples_leaf : int
+        The minimum number of samples required to be at a leaf node.
+    l2_regularization : float
+        The L2 regularization parameter.
+    bias : float
+        A correction term to add to the tree's predictions.
+    learning_rate : float
+        A correction term to multiply the tree's predictions by.
+    is_selected : bool
+        Whether the tree is the null tree or not.
+    feature_name : str
+        The name of the feature the tree splits on.
+    output_name : str
+        The name of the output the tree predicts.
+
+    Attributes
+    ----------
+    list_tree_ : ListTree
+        The tree represented as a list. It is learnt after fitting.
+    """
+
+    # Hyper-parameters
+    max_depth: int = attrs.field(default=3)
+    min_samples_split: int = attrs.field(default=2)
+    min_samples_leaf: int = attrs.field(default=1)
+    l2_regularization: float = attrs.field(default=0.01)
+    # Ensemble parameters
+    n_estimators: int = attrs.field(default=10)
+    random_generator: np.random.Generator = attrs.field(default=np.random.default_rng())
+    # Correction parameters
+    bias: float = attrs.field(default=0.0)
+    learning_rate: float = attrs.field(default=1.0)
+    is_selected: bool = attrs.field(default=True)
+    # Model information
+    feature_name: str | None = attrs.field(default=None)
+    output_name: str | None = attrs.field(default=None)
+    # Learnt after fitting
+    list_tree_: ListTree = attrs.field(init=False, repr=False)
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> Self:
+        return self  # TODO: implement
 
 
 def sum_trees(trees: list[ListTree]) -> ListTree:
@@ -333,3 +390,49 @@ def build_list_tree(
                 stack[stack_pos] = (start, ip, depth + 1)
                 stack_pos += 1
     return leaf_values[:lv_pos], split_values[:sv_pos]
+
+
+"""
+@nb.njit(
+    nb.types.List(nb.types.Tuple((nb.float32[:], nb.float32[:])))(
+        nb.float32[:], nb.float32[:], nb.float32,
+        nb.int64, nb.int64, nb.int64, nb.int64,
+        nb.types.NumPyRandomGeneratorType(),
+        nb.float64,
+    ),
+    fastmath=True,
+    cache=True,
+    parallel=True,
+    nogil=True,
+)
+"""
+
+
+def build_ensemble(
+    X: np.ndarray,
+    y: np.ndarray,
+    l2_regularization: float,
+    min_samples_leaf: int,
+    min_samples_split: int,
+    max_depth: int,
+    n_estimators: int,
+    rng: np.random.Generator,
+    subsample: float = 1.0,
+) -> list[tuple[np.ndarray, np.ndarray]]:
+    return_list = []
+    row_size = X.shape[0]
+    for _ in nb.prange(n_estimators):
+        selected_rows = rng.random(row_size) <= subsample
+        X_sub = X[selected_rows]
+        y_sub = y[selected_rows]
+        return_list.append(
+            build_list_tree(
+                X_sub,
+                y_sub,
+                l2_regularization,
+                min_samples_leaf,
+                min_samples_split,
+                max_depth,
+            )
+        )
+    return return_list
