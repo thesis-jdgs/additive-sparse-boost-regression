@@ -289,9 +289,18 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
                 last_iterations = self.score_history_[
                     model_count - self.n_iter_no_change : model_count, 1
                 ]
-                if np.all(np.diff(last_iterations) >= 0.0):
-                    self.n_estimators = model_count + 1
+                if np.all(np.diff(last_iterations) >= np.finfo(np.float32).eps):
                     break
+        # Early stopping
+        self.score_history_ = self.score_history_[
+            : model_count + 1
+        ]  # noqa pyUnresolvedReferences
+        self.n_estimators = np.argmin(self.score_history_[:, 1])  # type: ignore
+        self._regressors = self._regressors[: self.n_estimators]
+        self.selection_history_ = self.selection_history_[: self.n_estimators]
+        self.selection_count_ = np.unique(self.selection_history_, return_counts=True)[
+            1
+        ]
 
     def _boost(
         self,
@@ -315,7 +324,9 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         X_sorted = X_selected[index]
         y_sorted = y[index]
         # Subsampling of rows
-        selected_rows = self._random_generator.random(self._m) <= self.row_subsample
+        log_random = np.log(1 - self._random_generator.random(self._m))
+        log_random *= -self.row_subsample
+        selected_rows = np.repeat(np.arange(self._m), np.round(log_random).astype(int))
         # Fit the model on the selected feature and sampled rows
         new_model = ListTreeRegressor(
             max_depth=self.max_depth,
@@ -339,7 +350,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         self._regressors[selected_feature].append(new_model)
 
     def _get_index(self, X: np.ndarray, feature: int) -> np.ndarray:
-        """Get the index of the leaf for each sample."""
+        """Get the ordered indexes of the feature."""
         if self._indexing_cache[feature] is None:
             self._indexing_cache[feature] = np.argsort(X[:, feature])
         return self._indexing_cache[feature]  # type: ignore
