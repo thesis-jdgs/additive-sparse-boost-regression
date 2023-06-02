@@ -259,6 +259,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             )
         if self.output_name is None:
             self.output_name = y.name if isinstance(y, pd.Series) else "output"
+        self._n_trials = int(self.row_subsample * self._m)
         self._regressors: list[list[ListTreeRegressor]] = [[] for _ in range(self._n)]
         self._indexing_cache = [None for _ in range(self._n)]
         self.selection_count_ = np.zeros(self._n, dtype=np.float32)
@@ -293,8 +294,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
                     break
         # Early stopping
         self.score_history_ = self.score_history_[
-            : model_count + 1
-        ]  # noqa pyUnresolvedReferences
+            : model_count + 1  # noqa pyUnresolvedReferences
+        ]
         self.n_estimators = np.argmin(self.score_history_[:, 1])  # type: ignore
         self._regressors = self._regressors[: self.n_estimators]
         self.selection_history_ = self.selection_history_[: self.n_estimators]
@@ -324,9 +325,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         X_sorted = X_selected[index]
         y_sorted = y[index]
         # Subsampling of rows
-        log_random = np.log(1 - self._random_generator.random(self._m))
-        log_random *= -self.row_subsample
-        selected_rows = np.repeat(np.arange(self._m), np.round(log_random).astype(int))
+        draws = self._random_generator.binomial(self._n_trials, 1 / self._m, self._m)
+        selected_rows = np.repeat(np.arange(self._m), draws)
         # Fit the model on the selected feature and sampled rows
         new_model = ListTreeRegressor(
             max_depth=self.max_depth,
