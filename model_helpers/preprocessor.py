@@ -1,18 +1,18 @@
 """Implement a preprocessor for tree-based estimators."""
-# Standard library imports
 import contextlib
 
-# Third party imports
 import attrs
 import numpy as np
 from category_encoders.glmm import GLMMEncoder
-from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.base import BaseEstimator
+from sklearn.base import TransformerMixin
 from sklearn.exceptions import NotFittedError
 from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import KBinsDiscretizer, StandardScaler
+from sklearn.preprocessing import KBinsDiscretizer
+from sklearn.preprocessing import StandardScaler
 
-# Local application imports
-from model_helpers.custom_types import Data, Target
+from model_helpers.custom_types import Data
+from model_helpers.custom_types import Target
 
 # Python 3.11 compatibility
 with contextlib.suppress(ImportError):

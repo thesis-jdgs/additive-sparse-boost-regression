@@ -1,14 +1,12 @@
 """Implement a functions to plot 1D trees."""
 from __future__ import annotations
 
-# Third party imports
 import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
-# Local application imports
 from model_helpers.od_tree import ListTreeRegressor
 
 

@@ -1,9 +1,6 @@
 """Implement classes for typing estimators."""
-
-# Standard library imports
 from typing import Callable
 
-# Third party imports
 import numpy as np
 import pandas as pd
 

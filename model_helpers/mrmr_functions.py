@@ -1,5 +1,4 @@
 """Implement functions for the MRMR algorithm."""
-# Third party imports
 import numpy as np
 from sklearn.feature_selection import f_regression
 

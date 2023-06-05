@@ -26,10 +26,6 @@ from model_helpers.plotting import plot_categorical
 from model_helpers.plotting import plot_continuous
 from model_helpers.preprocessor import TreePreprocessor
 
-# Standard library imports
-# Third party imports
-# Local application imports
-
 # Python 3.11 compatibility
 with contextlib.suppress(ImportError):
     from typing import Self
@@ -67,8 +63,10 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         The minimum number of samples to split.
     min_samples_leaf : int, default=1, range=[1, inf)
         The minimum number of samples to be a leaf.
-    l2_regularization : float, default=0.0, range=[0.0, inf)
+    l2_regularization : float, default=0.1, range=[0.0, inf)
         The L2 regularization to use for the gain.
+    l1_regularization : float, default=1.0, range=[0.0, inf)
+        The L1 regularization to use for the gain.
     relevancy_scorer : TwoVectorFunction, default=f_regression_score
         The function to use to score the relevancy of the features.
     redundancy_matrix : OneVectorFunction, default=absolute_correlation_matrix
@@ -138,6 +136,9 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     l2_regularization: float = attrs.field(
         default=0.1, validator=attrs.validators.gt(0.0), converter=float
     )
+    l1_regularization: float = attrs.field(
+        default=1.0, validator=attrs.validators.ge(0.0), converter=float
+    )
     min_samples_split: int = attrs.field(
         default=2, validator=attrs.validators.ge(2), converter=int
     )
@@ -167,7 +168,9 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     _n: int = attrs.field(init=False, repr=False)
     _m: int = attrs.field(init=False, repr=False)
     _is_fitted: bool = attrs.field(init=False, repr=False, default=False)
-    _indexing_cache: list[np.ndarray | None] = attrs.field(init=False, repr=False)
+    _indexing_cache: list[tuple[np.ndarray, np.ndarray] | None] = attrs.field(
+        init=False, repr=False
+    )
 
     @selection_history_.default  # type: ignore
     def _set_selection_history(self) -> np.ndarray:
@@ -220,14 +223,14 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             X_val, y_val = validation_set
         self._initialize_fit_params(X, y)
         # Convert the data to numpy arrays
-        y_train = np.array(y, dtype=np.float32)
+        y_train = np.array(y, dtype=np.float64)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             X_train = np.array(
                 self.preprocessor_.fit_transform(X, y_train), dtype=np.float32
             )
         X_val = np.array(self.preprocessor_.transform(X_val), dtype=np.float32)
-        y_val = np.array(y_val, dtype=np.float32)
+        y_val = np.array(y_val, dtype=np.float64)
         # Fit the model and correct the bias
         self._fit(X_train, y_train, X_val, y_val)
         self.regressors_ = [
@@ -319,25 +322,25 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         selected_feature: int = np.argmax(score)  # type: ignore
         self.selection_history_[model_count] = selected_feature
         self.selection_count_[selected_feature] += 1
-        # Finding the selected feature
-        X_selected = X[:, selected_feature]
-        index = self._get_index(X, selected_feature)
-        X_sorted = X_selected[index]
-        y_sorted = y[index]
-        # Subsampling of rows
-        draws = self._random_generator.binomial(self._n_trials, 1 / self._m, self._m)
-        selected_rows = np.repeat(np.arange(self._m), draws)
+        # Split the data
+        x_passed, splitted = self._get_index(X, selected_feature)
+        lengths = np.array([len(indices) for indices in splitted])
+        min_size = np.min(lengths)
+        size = int(self.row_subsample * min_size)
+        random_indexes = self._random_generator.choice(np.arange(min_size), size=size)
+        y_passed = np.array([y[indices][random_indexes].mean() for indices in splitted])
         # Fit the model on the selected feature and sampled rows
         new_model = ListTreeRegressor(
             max_depth=self.max_depth,
             min_samples_leaf=self.min_samples_leaf,
             min_samples_split=self.min_samples_split,
             l2_regularization=self.l2_regularization,
+            l1_regularization=self.l1_regularization,
             learning_rate=self.learning_rate,
         )
-        new_model.fit(X_sorted[selected_rows], y_sorted[selected_rows])
+        new_model.fit(x_passed, y_passed)
         # Update the residual
-        y_pred = new_model.predict(X_selected)
+        y_pred = new_model.predict(X[:, selected_feature])
         y -= y_pred
         # Score the model on the validation set
         y_pred_val = new_model.predict(X_val[:, selected_feature])
@@ -349,10 +352,16 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         # Update the ensemble
         self._regressors[selected_feature].append(new_model)
 
-    def _get_index(self, X: np.ndarray, feature: int) -> np.ndarray:
+    def _get_index(self, X: np.ndarray, feature: int) -> tuple[np.ndarray, np.ndarray]:
         """Get the ordered indexes of the feature."""
         if self._indexing_cache[feature] is None:
-            self._indexing_cache[feature] = np.argsort(X[:, feature])
+            x = X[:, feature]
+            x_passed, inverse_indices = np.unique(x, return_inverse=True)
+            sorted_indices = np.argsort(inverse_indices)
+            sorted_x = x[sorted_indices]
+            split_indices = np.where(np.diff(sorted_x) != 0)[0] + 1
+            splitted = np.split(sorted_indices, split_indices)
+            self._indexing_cache[feature] = (x_passed, splitted)
         return self._indexing_cache[feature]  # type: ignore
 
     def contribution_frame(self, X: Data) -> pd.DataFrame:
@@ -578,7 +587,9 @@ if __name__ == "__main__":
     __main__(
         n_estimators=1_000,
         learning_rate=0.3,
-        l2_regularization=2.0,
-        max_depth=4,
+        l2_regularization=3.0,
+        l1_regularization=1.0,
+        max_depth=6,
         random_state=0,
+        row_subsample=0.85,
     )
