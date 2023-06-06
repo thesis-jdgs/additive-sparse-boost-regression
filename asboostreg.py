@@ -430,7 +430,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             raise NotFittedError(f"{self} cannot plot before calling fit.")
         # Printing non-selected features
         non_selected = [
-            model.feature_name for model in self.regressors_ if model.is_selected
+            model.feature_name for model in self.regressors_ if not model.is_selected
         ]
         print(f"The following features were not selected: {non_selected}")
         # Plot score history

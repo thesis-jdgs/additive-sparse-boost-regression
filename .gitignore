@@ -133,3 +133,6 @@ dmypy.json
 # Ignoring data files
 data*
 catboost_info*
+
+# TV1D Files which are unused for now
+tv1d/
