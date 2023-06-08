@@ -22,11 +22,8 @@ each boosting iteration.
 The package can be installed with pip:
 
 ```bash
-pip install git+https://github.com/J-s4-siNT4t-7jKaJv-4PD-oTK5hWWveyM-5ZC/additive-sparse-boost-regression.git
+pip install git+https://github.com/thesis-jdgs/additive-sparse-boost-regression.git
 ```
-
-**Note:** This repository name will change in the future.
-It's currently a randomly generated name to keep the organization private.
 
 **Note:** The package is not yet available on PyPI.
 

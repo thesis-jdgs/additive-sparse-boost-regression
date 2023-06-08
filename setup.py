@@ -1,10 +1,12 @@
 """Setup file for the asboostreg package."""
-# Standard library imports
 import setuptools
 
-# Local application imports
-from model_helpers import __author__, __email__, __license__, __maintainer__, __status__
 from asboostreg import __version__
+from model_helpers import __author__
+from model_helpers import __email__
+from model_helpers import __license__
+from model_helpers import __maintainer__
+from model_helpers import __status__
 
 
 with open("README.md", "r") as fh:
@@ -20,7 +22,7 @@ setuptools.setup(
     author_email=__email__,
     description="Additive Sparse Boosting Regression algorithm.",
     long_description=long_description,
-    url="https://github.com/J-s4-siNT4t-7jKaJv-4PD-oTK5hWWveyM-5ZC/additive-sparse-boost-regression",
+    url="https://github.com/thesis-jdgs/additive-sparse-boost-regression",
     packages=setuptools.find_packages(),
     install_requires=install_requires,
     license=__license__,
