@@ -153,8 +153,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     mrmr_scheme: TwoVectorFunction = attrs.field(default=np.subtract)
     # Optional information arguments
     categorical_features: list[int] = attrs.field(factory=list)
-    feature_names_in_: np.ndarray = attrs.field(default=None)
     output_name: str = attrs.field(default=None)
+    feature_names_in_: np.ndarray = attrs.field(default=None)
     # Parameters learnt after fitting
     preprocessor_: TreePreprocessor = attrs.field(init=False, repr=False)
     regressors_: list[ListTreeRegressor] = attrs.field(init=False, repr=False)
