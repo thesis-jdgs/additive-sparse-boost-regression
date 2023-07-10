@@ -9,7 +9,7 @@ y\approx f(x) = \beta + \sum_{i=1}^M f_i(x_i)
 Where $f_i$ functions with zero-mean and $\beta$ is the intercept,
 both parameters are estimated by minimizing the squared error loss function.
 
-The functions $f_i$ are either an ensemble of decision trees,
+The functions $f_i$ are either a piecewise constant function (trained as ensemble of decision trees),
 or the trivial zero-function, that is to say,
 some features are ignored, making the regressor sparse.
 
