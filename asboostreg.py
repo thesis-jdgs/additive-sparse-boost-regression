@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import contextlib
+import random
 import warnings
 
 import attrs
@@ -44,6 +45,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         The number of estimators to use in the ensemble.
     learning_rate : float, default=0.7, range=(0.0, 1.0]
         The learning rate, that is to say, the shrinkage factor of the estimators.
+    n_bags : int, default=10, range=[0, inf)
+        The number of bags to use for each estimator.
     random_state : int, optional
         The random state to use. It is used for subsampling and split finding.
     row_subsample : float, default=0.632, range=(0.0, 1.0]
@@ -65,8 +68,6 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         The minimum number of samples to be a leaf.
     l2_regularization : float, default=0.1, range=[0.0, inf)
         The L2 regularization to use for the gain.
-    l1_regularization : float, default=1.0, range=[0.0, inf)
-        The L1 regularization to use for the gain.
     relevancy_scorer : TwoVectorFunction, default=f_regression_score
         The function to use to score the relevancy of the features.
     redundancy_matrix : OneVectorFunction, default=absolute_correlation_matrix
@@ -85,8 +86,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     ----------
     preprocessor_ : TreePreprocessor
         The estimator used to preprocess the data.
-    estimators_ : list of ListTreeRegressor
-        The estimators used to fit the data.
+    regressors_ : list of ListTreeRegressor
+        The list of the regressors.
     intercept_ : float
         The intercept of the model, which corrects for the mean of the target.
     selection_history_ : np.ndarray
@@ -96,8 +97,6 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         validation RMSE.
     selection_count_ :  np.ndarray
         The number of times each feature was selected.
-    selected_features_ : np.ndarray
-        The indices of the selected features.
     """
 
     # Boosting Hyper-parameters
@@ -108,6 +107,9 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         default=0.1,
         validator=[attrs.validators.gt(0.0), attrs.validators.le(1.0)],
         converter=float,
+    )
+    n_bags: int = attrs.field(
+        default=10, validator=attrs.validators.ge(1), converter=int
     )
     random_state: int = attrs.field(default=None)
     row_subsample: float = attrs.field(
@@ -136,9 +138,6 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     l2_regularization: float = attrs.field(
         default=0.1, validator=attrs.validators.gt(0.0), converter=float
     )
-    l1_regularization: float = attrs.field(
-        default=1.0, validator=attrs.validators.ge(0.0), converter=float
-    )
     min_samples_split: int = attrs.field(
         default=2, validator=attrs.validators.ge(2), converter=int
     )
@@ -164,7 +163,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     selection_count_: np.ndarray = attrs.field(init=False, repr=False)
     # Private attributes
     _regressors: list[list[ListTreeRegressor]] = attrs.field(init=False, repr=False)
-    _random_generator: np.random.Generator = attrs.field(init=False, repr=False)
+    _random_generator: random.Random = attrs.field(init=False, repr=False)
     _n: int = attrs.field(init=False, repr=False)
     _m: int = attrs.field(init=False, repr=False)
     _is_fitted: bool = attrs.field(init=False, repr=False, default=False)
@@ -181,8 +180,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         return np.empty((self.n_estimators, 2), dtype=float)
 
     @_random_generator.default  # type: ignore
-    def _set_random_generator(self) -> np.random.Generator:
-        return np.random.default_rng(self.random_state)
+    def _set_random_generator(self) -> random.Random:
+        return random.Random(self.random_state)
 
     @preprocessor_.default  # type: ignore
     def _set_preprocessor(self) -> TreePreprocessor:
@@ -322,24 +321,24 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         selected_feature: int = np.argmax(score)  # type: ignore
         self.selection_history_[model_count] = selected_feature
         self.selection_count_[selected_feature] += 1
-        # Split the data
-        x_passed, splitted = self._get_index(X, selected_feature)
-        lengths = np.array([len(indices) for indices in splitted])
-        min_size = np.min(lengths)
-        size = int(self.row_subsample * min_size)
-        random_indexes = self._random_generator.choice(np.arange(min_size), size=size)
-        y_passed = np.array([y[indices][random_indexes].mean() for indices in splitted])
-        # Fit the model on the selected feature and sampled rows
-        new_model = ListTreeRegressor(
-            max_depth=self.max_depth,
-            min_samples_leaf=self.min_samples_leaf,
-            min_samples_split=self.min_samples_split,
-            l2_regularization=self.l2_regularization,
-            l1_regularization=self.l1_regularization,
-            learning_rate=self.learning_rate,
-        )
-        new_model.fit(x_passed, y_passed)
-        # Update the residual
+        # Model training
+        x_passed, split = self._get_index(X, selected_feature)
+        forest = [
+            ListTreeRegressor(
+                max_depth=self.max_depth,
+                min_samples_leaf=self.min_samples_leaf,
+                min_samples_split=self.min_samples_split,
+                l2_regularization=self.l2_regularization,
+                learning_rate=self.learning_rate / self.n_bags,
+            )
+            for _ in range(self.n_bags)
+        ]
+        for tree in forest:
+            y_passed = np.array(
+                [self._random_generator.choice(y[indices]) for indices in split]
+            )
+            tree.fit(x_passed, y_passed)
+        new_model = sum_tree_regressors(forest)
         y_pred = new_model.predict(X[:, selected_feature])
         y -= y_pred
         # Score the model on the validation set
@@ -360,8 +359,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             sorted_indices = np.argsort(inverse_indices)
             sorted_x = x[sorted_indices]
             split_indices = np.where(np.diff(sorted_x) != 0)[0] + 1
-            splitted = np.split(sorted_indices, split_indices)
-            self._indexing_cache[feature] = (x_passed, splitted)
+            split = np.split(sorted_indices, split_indices)
+            self._indexing_cache[feature] = (x_passed, split)
         return self._indexing_cache[feature]  # type: ignore
 
     def contribution_frame(self, X: Data) -> pd.DataFrame:
@@ -391,7 +390,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             ]
         ).T
         contribution_df = pd.DataFrame(
-            contribution, columns=["intercept"] + self.feature_names_in_
+            contribution, columns=["_asbr_intercept"] + self.feature_names_in_
         )
         return contribution_df
 
@@ -411,7 +410,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         if not self._is_fitted:
             raise NotFittedError(f"{self} cannot predict before calling fit.")
         X_arr = np.array(self.preprocessor_.transform(X), dtype=np.float32)
-        return self.intercept_ + np.sum(
+        intercept_vector = np.full(len(X), self.intercept_)
+        return intercept_vector + np.sum(
             [
                 regressor.predict(X_arr[:, i])
                 for i, regressor in enumerate(self.regressors_)
@@ -563,7 +563,7 @@ def __main__(learning_rate: float = 0.5, n_estimators: int = 50, **kwargs) -> No
     from sklearn.datasets import fetch_california_housing
     from sklearn.model_selection import train_test_split
 
-    X, y = fetch_california_housing(return_X_y=True, as_frame=True)
+    X, y = fetch_california_housing(return_X_y=True)
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
 
     def evaluate(model):
@@ -588,7 +588,6 @@ if __name__ == "__main__":
         n_estimators=1_000,
         learning_rate=0.3,
         l2_regularization=3.0,
-        l1_regularization=1.0,
         max_depth=6,
         random_state=0,
         row_subsample=0.85,

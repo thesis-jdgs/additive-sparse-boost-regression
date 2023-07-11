@@ -135,13 +135,6 @@ class ListTreeRegressor:
                 l2_regularization=self.l2_regularization,
             )
         )
-        """
-        denoised = tv1d_denoise(y, self.l1_regularization)
-        leaves, split_indexes = np.unique(denoised, return_index=True)
-        splits = X[split_indexes]
-        x_sort_index = np.argsort(splits)
-        self.list_tree_ = ListTree(leaves[x_sort_index], splits[x_sort_index][1:])
-        """
         return self  # type: ignore
 
     def fix_bias(self, X: np.ndarray) -> float:
@@ -219,8 +212,8 @@ def sum_trees(trees: list[ListTree]) -> ListTree:
 
 def sum_tree_regressors(
     regressors: list[ListTreeRegressor],
-    feature_name: str,
-    output_name: str,
+    feature_name: str | None = None,
+    output_name: str | None = None,
 ) -> ListTreeRegressor:
     """Sum a list of tree regressors together, as piecewise constant functions.
     It is assumed that all regressors have the same hyper-parameters.
@@ -230,9 +223,9 @@ def sum_tree_regressors(
     ----------
     regressors : list[ListTreeRegressor]
         The tree regressors to sum. If empty, the null tree is returned.
-    feature_name : str
+    feature_name : str, optional
         The name of the feature.
-    output_name : str
+    output_name : str, optional
         The name of the output.
 
     Returns
@@ -275,15 +268,14 @@ def best_split(y: np.ndarray, l2_regularization: float) -> tuple[int, bool]:
     right_gradient = total_gradient - left_gradient
     right_hessian = total_hessian - left_hessian
 
-    gain = (left_gradient * left_gradient) / (left_hessian + l2_regularization) + (
-        right_gradient * right_gradient
-    ) / (right_hessian + l2_regularization)
+    gain = (left_gradient * left_gradient) / (left_hessian + l2_regularization)
+    gain += (right_gradient * right_gradient) / (right_hessian + l2_regularization)
     loss = (total_gradient * total_gradient) / (total_hessian + l2_regularization)
 
     best_index: int = np.argmax(gain)  # type: ignore
-    best_gain = gain[best_index]
+    should_split = gain[best_index] <= loss
 
-    return best_index, best_gain <= loss
+    return best_index, should_split
 
 
 @nb.njit(
