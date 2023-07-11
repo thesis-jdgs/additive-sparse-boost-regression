@@ -560,18 +560,10 @@ def __main__(learning_rate: float = 0.5, n_estimators: int = 50, **kwargs) -> No
     """Run the California housing example."""
     import time
 
-    from sklearn.datasets import make_regression
+    from sklearn.datasets import fetch_california_housing
     from sklearn.model_selection import train_test_split
 
-    X, y = make_regression(
-        n_samples=200000,
-        n_features=10,
-        n_informative=1,
-        bias=5.0,
-        noise=20,
-        random_state=42,
-    )
-    # X, y = fetch_california_housing(return_X_y=True)
+    X, y = fetch_california_housing(return_X_y=True)
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
 
     def evaluate(model):
@@ -596,7 +588,6 @@ if __name__ == "__main__":
         n_estimators=1_000,
         learning_rate=0.3,
         l2_regularization=3.0,
-        l1_regularization=1.0,
         max_depth=6,
         random_state=0,
         row_subsample=0.85,
