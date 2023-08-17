@@ -222,11 +222,12 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             X_val, y_val = validation_set
         self._initialize_fit_params(X, y)
         # Convert the data to numpy arrays
-        y_train = np.array(y, dtype=np.float64)
+        y_train = np.ascontiguousarray(y, dtype=np.float64)
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            X_train = np.array(
-                self.preprocessor_.fit_transform(X, y_train), dtype=np.float32
+            X_train = np.ascontiguousarray(
+                self.preprocessor_.fit_transform(X, y_train),
+                dtype=np.float32,
             )
         X_val = np.array(self.preprocessor_.transform(X_val), dtype=np.float32)
         y_val = np.array(y_val, dtype=np.float64)
@@ -380,7 +381,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         """
         if not self._is_fitted:
             raise NotFittedError(f"{self} cannot predict before calling fit.")
-        X_arr = np.array(self.preprocessor_.transform(X))
+        X_arr = np.ascontiguousarray(self.preprocessor_.transform(X))
         contribution = np.empty((len(X), self._n + 1), dtype=float)
         contribution[:, 0] = self.intercept_
         contribution[:, 1:] = np.array(
@@ -409,7 +410,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         """
         if not self._is_fitted:
             raise NotFittedError(f"{self} cannot predict before calling fit.")
-        X_arr = np.array(self.preprocessor_.transform(X), dtype=np.float32)
+        X_arr = np.ascontiguousarray(self.preprocessor_.transform(X), dtype=np.float32)
         intercept_vector = np.full(len(X), self.intercept_)
         return intercept_vector + np.sum(
             [
@@ -512,8 +513,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         ]
 
         # Plot mean importances
-        X_train = np.array(X, dtype=np.float32)
-        X_arr = np.array(self.preprocessor_.transform(X), dtype=np.float32)
+        X_train = np.ascontiguousarray(X, dtype=np.float32)
+        X_arr = np.ascontiguousarray(self.preprocessor_.transform(X), dtype=np.float32)
         pd.options.plotting.backend = "plotly"
         scores = pd.Series(
             {
@@ -588,7 +589,8 @@ if __name__ == "__main__":
         n_estimators=1_000,
         learning_rate=0.3,
         l2_regularization=3.0,
-        max_depth=6,
+        max_depth=3,
         random_state=0,
         row_subsample=0.85,
+        n_bags=5,
     )

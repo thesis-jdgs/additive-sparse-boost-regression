@@ -4,27 +4,15 @@ from __future__ import annotations
 import contextlib
 
 import attrs
-import numba as nb
 import numpy as np
 
-# from tv1d.tv1d_wrapper import tv1d_denoise
+from model_helpers._od_tree import build_list_tree
+from model_helpers._od_tree import eval_piecewise
 
 
 # Python 3.11 feature
 with contextlib.suppress(ImportError):
     from typing import Self
-
-
-@nb.njit(
-    nb.float64[:](nb.float32[:], nb.float32[:], nb.float64[:]),
-    fastmath=True,
-    cache=True,
-)
-def eval_piecewise(
-    x: np.ndarray, split_values: np.ndarray, leaf_values: np.ndarray
-) -> np.ndarray:
-    """Evaluate a piecewise constant function at a given point."""
-    return leaf_values[np.searchsorted(split_values, x)]
 
 
 @attrs.define(slots=True)
@@ -74,8 +62,6 @@ class ListTreeRegressor:
         The minimum number of samples required to be at a leaf node.
     l2_regularization : float
         The L2 regularization parameter.
-    l1_regularization : float
-        The L1 regularization parameter.
     bias : float
         A correction term to add to the tree's predictions.
     learning_rate : float
@@ -251,89 +237,3 @@ def sum_tree_regressors(
     )
     regressor.list_tree_ = tree
     return regressor
-
-
-@nb.njit(
-    nb.types.Tuple((nb.int32, nb.boolean))(nb.float64[:], nb.float32),
-    fastmath=True,
-    cache=True,
-)
-def best_split(y: np.ndarray, l2_regularization: float) -> tuple[int, bool]:
-    """Finds the index of the best split, and whether the best split is
-    worth it."""
-    left_gradient = np.cumsum(y)
-    left_hessian = np.arange(1, len(y) + 1)
-    total_gradient = left_gradient[-1]
-    total_hessian = left_hessian[-1]
-    right_gradient = total_gradient - left_gradient
-    right_hessian = total_hessian - left_hessian
-
-    gain = (left_gradient * left_gradient) / (left_hessian + l2_regularization)
-    gain += (right_gradient * right_gradient) / (right_hessian + l2_regularization)
-    loss = (total_gradient * total_gradient) / (total_hessian + l2_regularization)
-
-    best_index: int = np.argmax(gain)  # type: ignore
-    should_split = gain[best_index] <= loss
-
-    return best_index, should_split
-
-
-@nb.njit(
-    nb.types.Tuple((nb.float64[:], nb.float32[:]))(
-        nb.float32[:], nb.float64[:], nb.float32, nb.int64, nb.int64, nb.int64
-    ),
-    fastmath=True,
-    cache=True,
-)
-def build_list_tree(
-    X: np.ndarray,
-    y: np.ndarray,
-    l2_regularization: float,
-    min_samples_leaf: int,
-    min_samples_split: int,
-    max_depth: int,
-) -> tuple[np.ndarray, np.ndarray]:
-    stack_size = y.size // min_samples_split + 1
-    stack = np.empty((stack_size, 3), dtype=np.int64)
-    stack_pos = 0
-    split_values = np.empty_like(y, dtype=np.float32)
-    leaf_values = np.empty_like(y, dtype=np.float64)
-    split_stack = np.empty_like(y, dtype=np.float32)
-    sv_pos = 0
-    lv_pos = 0
-    ss_pos = 0
-    stack[stack_pos] = (0, y.size, 0)
-    stack_pos += 1
-    while stack_pos > 0:
-        start, end, depth = stack[stack_pos - 1]
-        stack_pos -= 1
-        n_samples = end - start
-        y_node = y[start:end]
-        if depth >= max_depth or n_samples < min_samples_split:
-            lv = np.sum(y_node) / (n_samples + l2_regularization)
-            leaf_values[lv_pos] = lv
-            lv_pos += 1
-            if ss_pos > 0:
-                split_values[sv_pos] = split_stack[ss_pos - 1]
-                sv_pos += 1
-                ss_pos -= 1
-        else:
-            index, admissible = best_split(y_node, l2_regularization)
-            if admissible or n_samples <= min_samples_leaf:
-                lv = np.sum(y_node) / (n_samples + l2_regularization)
-                leaf_values[lv_pos] = lv
-                lv_pos += 1
-                if ss_pos > 0:
-                    split_values[sv_pos] = split_stack[ss_pos - 1]
-                    sv_pos += 1
-                    ss_pos -= 1
-            else:
-                split = X[start + index]
-                split_stack[ss_pos] = split
-                ss_pos += 1
-                ip = start + np.searchsorted(X[start:end], split, side="right")
-                stack[stack_pos] = (ip, end, depth + 1)
-                stack_pos += 1
-                stack[stack_pos] = (start, ip, depth + 1)
-                stack_pos += 1
-    return leaf_values[:lv_pos], split_values[:sv_pos]
