@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import contextlib
-import random
 import warnings
 
 import attrs
@@ -22,10 +21,12 @@ from model_helpers.custom_types import TwoVectorFunction
 from model_helpers.mrmr_functions import absolute_correlation_matrix
 from model_helpers.mrmr_functions import f_regression_score
 from model_helpers.od_tree import ListTreeRegressor
+from model_helpers.od_tree import ListTreeRegressorCV
 from model_helpers.od_tree import sum_tree_regressors
 from model_helpers.plotting import plot_categorical
 from model_helpers.plotting import plot_continuous
 from model_helpers.preprocessor import TreePreprocessor
+from model_helpers.sample_generators import generator_dict
 
 # Python 3.11 compatibility
 with contextlib.suppress(ImportError):
@@ -45,12 +46,13 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         The number of estimators to use in the ensemble.
     learning_rate : float, default=0.7, range=(0.0, 1.0]
         The learning rate, that is to say, the shrinkage factor of the estimators.
-    n_bags : int, default=10, range=[0, inf)
-        The number of bags to use for each estimator.
     random_state : int, optional
-        The random state to use. It is used for subsampling and split finding.
+        The random state to use. It is used for subsampling.
     row_subsample : float, default=0.632, range=(0.0, 1.0]
         The fraction of rows to subsample on each iteration.
+    subsample_type : str, default="mini-batch",
+        choices=["mini-batch", "bootstrap", "poisson", None]
+        The type of subsampling to use. If None, no subsampling is used.
     validation_fraction : float, default=0.2, range=(0.0, 1.0]
         The fraction of rows to use for validation in case
         validation_set is not provided to the fit method.
@@ -97,6 +99,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         validation RMSE.
     selection_count_ :  np.ndarray
         The number of times each feature was selected.
+
     """
 
     # Boosting Hyper-parameters
@@ -108,14 +111,16 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         validator=[attrs.validators.gt(0.0), attrs.validators.le(1.0)],
         converter=float,
     )
-    n_bags: int = attrs.field(
-        default=10, validator=attrs.validators.ge(1), converter=int
-    )
+    # Random Hyper-parameters
     random_state: int = attrs.field(default=None)
     row_subsample: float = attrs.field(
         default=0.632,
         validator=[attrs.validators.gt(0.0), attrs.validators.le(1.0)],
         converter=float,
+    )
+    subsample_type: str = attrs.field(
+        default="mini-batch",
+        validator=attrs.validators.in_(("mini-batch", "bootstrap", "poisson")),
     )
     # Validation Hyper-parameters
     validation_fraction: float = attrs.field(
@@ -132,17 +137,17 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         default=256, validator=attrs.validators.gt(0), converter=int
     )
     # Tree Hyper-parameters
-    max_depth: int = attrs.field(
-        default=2, validator=attrs.validators.ge(1), converter=int
-    )
     l2_regularization: float = attrs.field(
         default=0.1, validator=attrs.validators.gt(0.0), converter=float
     )
-    min_samples_split: int = attrs.field(
-        default=2, validator=attrs.validators.ge(2), converter=int
+    min_l0_fused_regularization: float = attrs.field(
+        default=0.0, validator=attrs.validators.ge(0.0), converter=float
+    )
+    max_l0_fused_regularization: float = attrs.field(
+        default=100.0, validator=attrs.validators.gt(0.0), converter=float
     )
     min_samples_leaf: int = attrs.field(
-        default=1, validator=attrs.validators.ge(1), converter=int
+        default=1, validator=attrs.validators.ge(0), converter=int
     )
     # Functions for scoring and selecting features
     relevancy_scorer: TwoVectorFunction = attrs.field(default=f_regression_score)
@@ -154,7 +159,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     categorical_features: list[int] = attrs.field(factory=list)
     output_name: str = attrs.field(default=None)
     feature_names_in_: np.ndarray = attrs.field(default=None)
-    # Parameters learnt after fitting
+    # Attributes learnt after fitting
     preprocessor_: TreePreprocessor = attrs.field(init=False, repr=False)
     regressors_: list[ListTreeRegressor] = attrs.field(init=False, repr=False)
     intercept_: float = attrs.field(init=False, repr=False)
@@ -163,7 +168,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     selection_count_: np.ndarray = attrs.field(init=False, repr=False)
     # Private attributes
     _regressors: list[list[ListTreeRegressor]] = attrs.field(init=False, repr=False)
-    _random_generator: random.Random = attrs.field(init=False, repr=False)
+    _random_generator: np.random.Generator = attrs.field(init=False, repr=False)
     _n: int = attrs.field(init=False, repr=False)
     _m: int = attrs.field(init=False, repr=False)
     _is_fitted: bool = attrs.field(init=False, repr=False, default=False)
@@ -180,8 +185,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         return np.empty((self.n_estimators, 2), dtype=float)
 
     @_random_generator.default  # type: ignore
-    def _set_random_generator(self) -> random.Random:
-        return random.Random(self.random_state)
+    def _set_random_generator(self) -> np.random.Generator:
+        return np.random.default_rng(self.random_state)
 
     @preprocessor_.default  # type: ignore
     def _set_preprocessor(self) -> TreePreprocessor:
@@ -213,6 +218,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         -------
         Self
             The fitted model.
+
         """
         if validation_set is None:
             X, X_val, y, y_val = train_test_split(
@@ -266,6 +272,9 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         self._regressors: list[list[ListTreeRegressor]] = [[] for _ in range(self._n)]
         self._indexing_cache = [None for _ in range(self._n)]
         self.selection_count_ = np.zeros(self._n, dtype=np.float32)
+        self.get_weights = generator_dict[self.subsample_type](
+            self._m, self.row_subsample, self._random_generator
+        )
 
     def _fit(
         self, X: np.ndarray, y: np.ndarray, X_val: np.ndarray, y_val: np.ndarray
@@ -324,22 +333,25 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         self.selection_count_[selected_feature] += 1
         # Model training
         x_passed, split = self._get_index(X, selected_feature)
-        forest = [
-            ListTreeRegressor(
-                max_depth=self.max_depth,
-                min_samples_leaf=self.min_samples_leaf,
-                min_samples_split=self.min_samples_split,
-                l2_regularization=self.l2_regularization,
-                learning_rate=self.learning_rate / self.n_bags,
-            )
-            for _ in range(self.n_bags)
-        ]
-        for tree in forest:
-            y_passed = np.array(
-                [self._random_generator.choice(y[indices]) for indices in split]
-            )
-            tree.fit(x_passed, y_passed)
-        new_model = sum_tree_regressors(forest)
+        random_weights = self.get_weights()
+        validation_weights = random_weights == 0
+        while np.all(validation_weights) or np.all(~validation_weights):
+            random_weights = self.get_weights()
+            validation_weights = random_weights == 0
+        y_weighed = y * random_weights
+        y_means = np.array([np.mean(y_weighed[indices]) for indices in split])
+        weights = np.array([sum(random_weights[indices]) for indices in split])
+        x_validation = X[validation_weights, selected_feature]
+        y_validation = y[validation_weights]
+
+        new_model = ListTreeRegressorCV(
+            min_samples_leaf=self.min_samples_leaf,
+            l2_regularization=self.l2_regularization,
+            max_l0_fused_regularization=self.max_l0_fused_regularization,
+            min_l0_fused_regularization=self.min_l0_fused_regularization,
+            learning_rate=self.learning_rate,
+        )
+        new_model.fit(x_passed, y_means, weights, x_validation, y_validation)
         y_pred = new_model.predict(X[:, selected_feature])
         y -= y_pred
         # Score the model on the validation set
@@ -378,6 +390,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         -------
         contribution : DataFrame of shape (n_samples, n_features + 1)
             The contribution matrix.
+
         """
         if not self._is_fitted:
             raise NotFittedError(f"{self} cannot predict before calling fit.")
@@ -407,6 +420,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         -------
         Target of shape (n_samples,)
             The predicted response.
+
         """
         if not self._is_fitted:
             raise NotFittedError(f"{self} cannot predict before calling fit.")
@@ -426,6 +440,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         In particular, the plot includes training and validation error,
          as well as the selected features.
         Another plot shows the complexity of the model at each feature.
+
         """
         if not self._is_fitted:
             raise NotFittedError(f"{self} cannot plot before calling fit.")
@@ -503,6 +518,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         ----------
         X : Data of shape (n_samples, n_features)
             The data to explain the model decision at.
+
         """
         if not self._is_fitted:
             raise NotFittedError(f"{self} cannot plot before calling fit.")
@@ -589,8 +605,8 @@ if __name__ == "__main__":
         n_estimators=1_000,
         learning_rate=0.3,
         l2_regularization=3.0,
-        max_depth=3,
         random_state=0,
-        row_subsample=0.85,
-        n_bags=5,
+        subsample_type="mini-batch",
+        min_l0_fused_regularization=0.0,
+        max_l0_fused_regularization=10.0,
     )

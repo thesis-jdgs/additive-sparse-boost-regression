@@ -42,6 +42,7 @@ cdef SplitInfo best_split(
 cpdef build_list_tree(
     float[::1] X,
     double[::1] y,
+    double[::1] sample_weight,
     float l2_regularization,
     int min_samples_leaf,
     int min_samples_split,
@@ -68,12 +69,27 @@ cpdef build_list_tree(
     stack[0, 2] = 0
 
     cdef int start, end, depth, n_samples, index, ip
-    cdef double[::1] y_node
-    cdef double lv
+    cdef double numerator_lv, denominator_lv
     cdef bint admissible
     cdef float split
-    cdef SplitInfo info
-    cdef float regularization_factor
+
+    cdef Py_ssize_t i
+    cdef double[::1] y_weighted = np.empty(y.size, dtype=np.float64)
+    cdef double[::1] cumulative_gradient = np.empty(y.size, dtype=np.float64)
+    cdef double[::1] cumulative_hessian = np.empty(y.size, dtype=np.float64)
+
+    cdef double cum_sum_gradient = 0.0
+    cdef double cum_sum_hessian = 0.0
+
+    for i in range(stack[0, 1]):
+        y_weighted[i] = y[i] * sample_weight[i]
+        cum_sum_gradient += y_weighted[i]
+        cum_sum_hessian += sample_weight[i]
+        cumulative_gradient[i] = cum_sum_gradient
+        cumulative_hessian[i] = cum_sum_hessian
+    cdef double total_gradient, total_hessian, left_grad, right_grad, left_hess, right_hess
+    cdef double gradient_shift, hessian_shift
+    cdef double best_gain, gain
 
     while stack_pos > 0:
         start = stack[stack_pos - 1, 0]
@@ -81,23 +97,44 @@ cpdef build_list_tree(
         depth = stack[stack_pos - 1, 2]
         stack_pos -= 1
         n_samples = end - start
-        regularization_factor = 1 / (n_samples + l2_regularization)
-        y_node = y[start:end]
-        if depth >= max_depth or n_samples < min_samples_split:
-            lv = np.sum(y_node) * regularization_factor
-            leaf_values[lv_pos] = lv
+        if depth >= max_depth or n_samples < min_samples_split or n_samples <= min_samples_leaf:
+            if start > 0:
+                numerator = cumulative_gradient[end - 1] - cumulative_gradient[start - 1]
+                denominator = cumulative_hessian[end - 1] - cumulative_hessian[start - 1]
+            else:
+                numerator = cumulative_gradient[end - 1]
+                denominator = cumulative_hessian[end - 1]
+            leaf_values[lv_pos] = numerator / (denominator + l2_regularization)
             lv_pos += 1
             if ss_pos > 0:
                 split_values[sv_pos] = split_stack[ss_pos - 1]
                 sv_pos += 1
                 ss_pos -= 1
         else:
-            info = best_split(y_node, l2_regularization)
-            index = info.index
-            admissible = info.should_split
-            if admissible or n_samples <= min_samples_leaf:
-                lv = np.sum(y_node) * regularization_factor
-                leaf_values[lv_pos] = lv
+            gradient_shift = y_weighted[start] - cumulative_gradient[start]
+            hessian_shift = sample_weight[start] - cumulative_hessian[start]
+            total_gradient = cumulative_gradient[end - 1] + gradient_shift
+            total_hessian = cumulative_hessian[end - 1] + hessian_shift
+            best_gain = -np.inf
+            for i in range(n_samples):
+                left_grad = cumulative_gradient[i + start] + gradient_shift
+                left_hess = cumulative_hessian[i + start] + hessian_shift
+
+                right_grad = total_gradient - left_grad
+                right_hess = total_hessian - left_hess
+                gain = (left_grad * left_grad) / (left_hess + l2_regularization) + (right_grad * right_grad) / (
+                            right_hess + l2_regularization)
+                if gain > best_gain:
+                    best_gain = gain
+                    index = i
+            if best_gain <= total_gradient * total_gradient / (total_hessian + l2_regularization):
+                if start > 0:
+                    numerator = cumulative_gradient[end - 1] - cumulative_gradient[start - 1]
+                    denominator = cumulative_hessian[end - 1] - cumulative_hessian[start - 1]
+                else:
+                    numerator = cumulative_gradient[end - 1]
+                    denominator = cumulative_hessian[end - 1]
+                leaf_values[lv_pos] = numerator / (denominator + l2_regularization)
                 lv_pos += 1
                 if ss_pos > 0:
                     split_values[sv_pos] = split_stack[ss_pos - 1]
@@ -107,7 +144,7 @@ cpdef build_list_tree(
                 split = X[start + index]
                 split_stack[ss_pos] = split
                 ss_pos += 1
-                ip = start + np.searchsorted(X[start:end], split, side="right")
+                ip = start + index + 1
                 stack[stack_pos, 0] = ip
                 stack[stack_pos, 1] = end
                 stack[stack_pos, 2] = depth + 1
