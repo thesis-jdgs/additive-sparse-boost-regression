@@ -49,7 +49,7 @@ int l2_potts(
     for (int right = 1; right <= data_length; right++){
         first_moments = cumulative_first_moments[right];
         potts_values[right - 1] = cumulative_second_moments[right] -
-        first_moments*first_moments/(cumulative_weights[right] +  + l2_regularization);
+        first_moments*first_moments/(cumulative_weights[right] + l2_regularization*right);
         jumps[right - 1] = 0;
 
         for (int left = right - excluded_interval_size - 1; left >= 1; left--){
@@ -57,7 +57,8 @@ int l2_potts(
             deviation = l0_fused_regularization +
                 cumulative_second_moments[right] - cumulative_second_moments[left] -
                 first_moments_difference*first_moments_difference/
-                (cumulative_weights[right] - cumulative_weights[left] + l2_regularization);
+                (cumulative_weights[right] - cumulative_weights[left] +
+                l2_regularization*(right- left));
             if (deviation > potts_values[right - 1]){
                 break;
             }
@@ -75,7 +76,7 @@ int l2_potts(
     int leave_count = 0;
     while (right > 0){
         mean = (cumulative_first_moments[right] - cumulative_first_moments[left])/
-            (cumulative_weights[right] - cumulative_weights[left] + l2_regularization);
+            (cumulative_weights[right] - cumulative_weights[left] + l2_regularization*(right- left));
         leaves[leave_count] = mean;
         split_indexes[leave_count] = left;
         right = left;

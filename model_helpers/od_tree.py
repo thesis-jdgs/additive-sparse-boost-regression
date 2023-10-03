@@ -6,7 +6,6 @@ import math
 from collections import deque
 
 import attrs
-import numba as nb
 import numpy as np
 from sklearn.metrics import mean_squared_error
 
@@ -18,11 +17,11 @@ with contextlib.suppress(ImportError):
     from typing import Self
 
 
-@nb.njit(
-    nb.float64[:](nb.float32[:], nb.float32[:], nb.float64[:]),
-    fastmath=True,
-    cache=True,
-)
+# @nb.njit(
+#    nb.float64[:](nb.float32[:], nb.float32[:], nb.float64[:]),
+#    fastmath=True,
+#    cache=True,
+# )
 def eval_piecewise(
     x: np.ndarray, split_values: np.ndarray, leaf_values: np.ndarray
 ) -> np.ndarray:
@@ -32,7 +31,7 @@ def eval_piecewise(
 
 @attrs.define(slots=True)
 class ListTree:
-    """Tree represented as a list, for faster inference and merging.
+    r"""Tree represented as a list, for faster inference and merging.
 
     Parameters
     ----------
@@ -40,13 +39,14 @@ class ListTree:
         The values of the tree's leaves.
     split_values : np.ndarray of shape (n_splits,)
         The values at which the tree splits the data.
+
     """
 
     leaf_values: np.ndarray = attrs.field(converter=np.array)
     split_values: np.ndarray = attrs.field(converter=np.array)
 
     def __call__(self, x: np.ndarray) -> np.ndarray:
-        """Evaluate the piecewise constant function at a given point.
+        r"""Evaluate the piecewise constant function at a given point.
 
         Parameters
         ----------
@@ -58,13 +58,14 @@ class ListTree:
         -------
         np.ndarray of shape (n_samples,)
             The value of the tree at the given points.
+
         """
         return eval_piecewise(x, self.split_values, self.leaf_values)
 
 
 @attrs.define(slots=True)
 class ListTreeRegressor:
-    """A 1D Decision Tree Regressor, represented as a list,
+    r"""A 1D Decision Tree Regressor, represented as a list,
     for faster inference and merging.
 
     Parameters
@@ -90,6 +91,7 @@ class ListTreeRegressor:
     ----------
     list_tree_ : ListTree
         The tree represented as a list. It is learnt after fitting.
+
     """
 
     # Hyper-parameters
@@ -114,7 +116,7 @@ class ListTreeRegressor:
         X_valid: np.ndarray = None,
         y_valid: np.ndarray = None,
     ) -> Self:
-        """Fit the model to the given data.
+        r"""Fit the model to the given data.
 
         Parameters
         ----------
@@ -149,7 +151,7 @@ class ListTreeRegressor:
         return self  # type: ignore
 
     def fix_bias(self, X: np.ndarray) -> float:
-        """Fix the bias of the tree, and return it.
+        r"""Fix the bias of the tree, and return it.
 
         Parameters
         ----------
@@ -161,7 +163,7 @@ class ListTreeRegressor:
         return self.bias  # type: ignore
 
     def predict(self, X: np.ndarray) -> np.ndarray:
-        """Predict the values of the given data.
+        r"""Predict the values of the given data.
 
         Parameters
         ----------
@@ -179,7 +181,7 @@ class ListTreeRegressor:
         return np.zeros(len(X))
 
     def get_mean_absolute_score(self, x: np.ndarray) -> float:
-        """Compute the mean absolute score of the estimator.
+        r"""Compute the mean absolute score of the estimator.
 
         Parameters
         ----------
@@ -195,7 +197,7 @@ class ListTreeRegressor:
         return np.mean(np.abs(self.predict(x)))  # type: ignore
 
     def get_split_count(self) -> int:
-        """Get the number of splits in the tree."""
+        r"""Get the number of splits in the tree."""
         if self.is_selected:
             return len(self.list_tree_.split_values)
         return 0
@@ -204,20 +206,16 @@ class ListTreeRegressor:
         self, X: np.ndarray, y: np.ndarray, sample_weight: np.ndarray
     ) -> tuple[int, float]:
         slope = self.get_split_count()
-        indices = np.searchsorted(self.list_tree_.split_values, X, side="right")
-        prediction = self.list_tree_.leaf_values[indices]
-        counts = np.bincount(indices)
-        penalization = (
-            self.l2_regularization * (self.list_tree_.leaf_values**2) @ counts
-        )
-        fidelity = np.square(prediction - y) @ sample_weight
+        leaves = self.list_tree_.leaf_values
+        penalization = self.l2_regularization * leaves.dot(leaves)
+        fidelity = np.square(self.predict(X) - y).dot(sample_weight)
         intercept = fidelity + penalization
         return slope, intercept  # type: ignore
 
 
 @attrs.define(slots=True)
 class ListTreeRegressorCV(ListTreeRegressor):
-    """A 1D Decision Tree Regressor, represented as a list,
+    r"""A 1D Decision Tree Regressor, represented as a list,
     for faster inference and merging. It is cross-validated, given a range of
     l0 fused regularization parameters.
 
@@ -300,7 +298,7 @@ class ListTreeRegressorCV(ListTreeRegressor):
         X_valid: np.ndarray = None,
         y_valid: np.ndarray = None,
     ):
-        """Fit the model.
+        r"""Fit the model.
 
         Parameters
         ----------
@@ -314,6 +312,7 @@ class ListTreeRegressorCV(ListTreeRegressor):
             The validation features.
         y_valid : np.ndarray
             The validation labels.
+
         """
         regressor_list = self._build_regressors(X_train, y_train, sample_weight)
         score_list = [
@@ -329,7 +328,7 @@ class ListTreeRegressorCV(ListTreeRegressor):
 
 
 def sum_trees(trees: list[ListTree]) -> ListTree:
-    """Sum a list of trees together, as piecewise constant functions.
+    r"""Sum a list of trees together, as piecewise constant functions.
 
     Parameters
     ----------
@@ -340,6 +339,7 @@ def sum_trees(trees: list[ListTree]) -> ListTree:
     -------
     ListTree
         The sum of the trees.
+
     """
     merged_splits = np.unique(np.concatenate([tree.split_values for tree in trees]))
     merged_leaves = np.empty(len(merged_splits) + 1, dtype=np.float64)
@@ -356,9 +356,8 @@ def sum_tree_regressors(
     feature_name: str | None = None,
     output_name: str | None = None,
 ) -> ListTreeRegressor:
-    """Sum a list of tree regressors together, as piecewise constant functions.
+    r"""Sum a list of tree regressors together, as piecewise constant functions.
     It is assumed that all regressors have the same hyper-parameters.
-    The bias is added to the sum of the trees.
 
     Parameters
     ----------
@@ -373,6 +372,7 @@ def sum_tree_regressors(
     -------
     ListTreeRegressor
         The sum of the tree regressors, with the given bias.
+
     """
     if len(regressors) == 0:
         return ListTreeRegressor(
@@ -392,19 +392,19 @@ def sum_tree_regressors(
     return regressor
 
 
-@nb.njit(
-    nb.types.Tuple((nb.float64[:], nb.float32[:]))(
-        nb.float32[:],
-        nb.float64[:],
-        nb.float64[:],
-        nb.float32,
-        nb.int64,
-        nb.int64,
-        nb.int64,
-    ),
-    fastmath=True,
-    cache=True,
-)
+# @nb.njit(
+#     nb.types.Tuple((nb.float64[:], nb.float32[:]))(
+#         nb.float32[:],
+#         nb.float64[:],
+#         nb.float64[:],
+#         nb.float32,
+#         nb.int64,
+#         nb.int64,
+#         nb.int64,
+#     ),
+#     fastmath=True,
+#     cache=True,
+# )
 def build_list_tree(
     X: np.ndarray,
     y: np.ndarray,

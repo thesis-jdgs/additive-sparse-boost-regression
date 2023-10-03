@@ -9,7 +9,6 @@ from sklearn.base import TransformerMixin
 from sklearn.exceptions import NotFittedError
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import KBinsDiscretizer
-from sklearn.preprocessing import StandardScaler
 
 from model_helpers.custom_types import Data
 from model_helpers.custom_types import Target
@@ -17,6 +16,20 @@ from model_helpers.custom_types import Target
 # Python 3.11 compatibility
 with contextlib.suppress(ImportError):
     from typing import Self
+
+
+@attrs.define(slots=False, kw_only=True)
+class EmptyTransformer(BaseEstimator, TransformerMixin):
+    """Implement a transformer that does nothing."""
+
+    def fit(self, X: Data, y: Target = None) -> Self:
+        return self
+
+    def transform(self, X: Data) -> np.ndarray:
+        return X
+
+    def inverse_transform(self, X: Data) -> np.ndarray:
+        return X
 
 
 @attrs.define(slots=False, kw_only=True)
@@ -50,7 +63,7 @@ class TreePreprocessor(BaseEstimator, TransformerMixin):
             random_state=self.random_state,
             dtype=np.float32,
         )
-        self._scaler = StandardScaler(with_std=False)
+        self._scaler = EmptyTransformer()  # StandardScaler(with_std=False)
         self._has_categorical_features = len(self.categorical_features) > 0
 
     def fit(self, X: Data, y: Target) -> Self:

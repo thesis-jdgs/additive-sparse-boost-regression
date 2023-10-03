@@ -22,7 +22,7 @@ def f_regression_score(X: np.ndarray, y: np.ndarray) -> np.ndarray:
     np.ndarray
         The f_regression score for each feature.
     """
-    return f_regression(X, y, center=False)[0]
+    return f_regression(X, y)[0]
 
 
 # Redundancy

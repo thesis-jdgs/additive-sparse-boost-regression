@@ -38,7 +38,7 @@ __version__ = "0.0.1"
 
 @attrs.define(slots=False, kw_only=True)
 class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
-    """A sparse generalized additive model with decision trees.
+    r"""A sparse generalized additive model with decision trees.
 
     Parameters
     ----------
@@ -62,10 +62,6 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         The value to use to fill the missing values.
     max_bins: int, default=256
         The maximum number of bins to use for discretization.
-    max_depth : int, default=2, range=[1, inf)
-        The maximum depth of each tree.
-    min_samples_split : int, default=2, range=[1, inf)
-        The minimum number of samples to split.
     min_samples_leaf : int, default=1, range=[1, inf)
         The minimum number of samples to be a leaf.
     l2_regularization : float, default=0.1, range=[0.0, inf)
@@ -200,7 +196,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     def fit(
         self, X: Data, y: Target, validation_set: tuple[Data, Target] | None = None
     ) -> Self:
-        """Fit a generalized additive model with sparse functions, that is to say,
+        r"""Fit a generalized additive model with sparse functions, that is to say,
             with features selected by mRMR.
 
         Parameters
@@ -304,10 +300,10 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
                 ]
                 if np.all(np.diff(last_iterations) >= np.finfo(np.float32).eps):
                     break
+        else:
+            model_count = 0
         # Early stopping
-        self.score_history_ = self.score_history_[
-            : model_count + 1  # noqa pyUnresolvedReferences
-        ]
+        self.score_history_ = self.score_history_[: model_count + 1]
         self.n_estimators = np.argmin(self.score_history_[:, 1])  # type: ignore
         self._regressors = self._regressors[: self.n_estimators]
         self.selection_history_ = self.selection_history_[: self.n_estimators]
@@ -340,10 +336,9 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             validation_weights = random_weights == 0
         y_weighed = y * random_weights
         y_means = np.array([np.mean(y_weighed[indices]) for indices in split])
-        weights = np.array([sum(random_weights[indices]) for indices in split])
+        weights = np.array([np.sum(random_weights[indices]) for indices in split])
         x_validation = X[validation_weights, selected_feature]
         y_validation = y[validation_weights]
-
         new_model = ListTreeRegressorCV(
             min_samples_leaf=self.min_samples_leaf,
             l2_regularization=self.l2_regularization,
@@ -358,8 +353,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         y_pred_val = new_model.predict(X_val[:, selected_feature])
         y_val -= y_pred_val
         self.score_history_[model_count] = [
-            np.square(y).mean(),
-            np.square(y_val).mean(),
+            y.dot(y) / len(y),
+            y_val.dot(y_val) / len(y_val),
         ]
         # Update the ensemble
         self._regressors[selected_feature].append(new_model)
@@ -377,7 +372,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         return self._indexing_cache[feature]  # type: ignore
 
     def contribution_frame(self, X: Data) -> pd.DataFrame:
-        """DataFrame of the contribution of each feature for each sample.
+        r"""DataFrame of the contribution of each feature for each sample.
         Each row is a sample and each column is a feature.
         The first column is the intercept.
 
@@ -409,7 +404,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         return contribution_df
 
     def predict(self, X: Data) -> Target:
-        """Predict the response for the data.
+        r"""Predict the response for the data.
 
         Parameters
         ----------
@@ -436,7 +431,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         )
 
     def plot_model_information(self) -> None:
-        """Plot the model information that was collected during training.
+        r"""Plot the model information that was collected during training.
         In particular, the plot includes training and validation error,
          as well as the selected features.
         Another plot shows the complexity of the model at each feature.
@@ -510,7 +505,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         fig.show()
 
     def explain(self, X: Data) -> None:
-        """Explain the model decision at the data X.
+        r"""Explain the model decision at the data X.
         X can be the training data to explain how the model was built,
         or can be new data points to explain the model decision at these points.
 
@@ -540,7 +535,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
                 for feature_index, model in selected
             }
         )
-        scores["intercept"] = self.intercept_
+        scores["asbr_intercept"] = np.abs(self.intercept_)
         pd.options.plotting.backend = "plotly"
         fig = scores.sort_values().plot.barh()
         fig.update_layout(
@@ -573,7 +568,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             fig.show()
 
 
-def __main__(learning_rate: float = 0.5, n_estimators: int = 50, **kwargs) -> None:
+def __main__(**kwargs) -> None:
     """Run the California housing example."""
     import time
 
@@ -593,9 +588,7 @@ def __main__(learning_rate: float = 0.5, n_estimators: int = 50, **kwargs) -> No
         print(f"Number of features: {model.selection_count_}")
 
     # Evaluate the model
-    model = SparseAdditiveBoostingRegressor(
-        learning_rate=learning_rate, n_estimators=n_estimators, **kwargs
-    )
+    model = SparseAdditiveBoostingRegressor(**kwargs)
     evaluate(model)
     print(model.n_estimators)
 
