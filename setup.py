@@ -1,7 +1,7 @@
 """Setup file for the asboostreg package."""
 import numpy as np
 import setuptools
-from Cython.Build import cythonize
+#from Cython.Build import cythonize
 
 from asboostreg import __version__
 from model_helpers import __author__
@@ -36,6 +36,6 @@ setuptools.setup(
         "Operating System :: OS Independent",
         "Development Status :: 3 - Alpha",
     ],
-    ext_modules=cythonize("model_helpers/_od_tree.pyx"),
+    #ext_modules=cythonize("model_helpers/_od_tree.pyx"),
     include_dirs=[np.get_include()],
 )
