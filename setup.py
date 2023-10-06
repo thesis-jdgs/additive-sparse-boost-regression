@@ -37,5 +37,8 @@ setuptools.setup(
         "Development Status :: 3 - Alpha",
     ],
     #ext_modules=cythonize("model_helpers/_od_tree.pyx"),
+    ext_modules=[
+        setuptools.Extension("potts", ["potts/l2_potts.c"])
+    ],
     include_dirs=[np.get_include()],
 )
