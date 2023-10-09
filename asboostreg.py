@@ -64,8 +64,14 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         The maximum number of bins to use for discretization.
     min_samples_leaf : int, default=1, range=[1, inf)
         The minimum number of samples to be a leaf.
+    max_leaves : int, default=16, range=[0, inf)
+        The maximum number of leaves to use.
     l2_regularization : float, default=0.1, range=[0.0, inf)
         The L2 regularization to use for the gain.
+    min_l0_fused_regularization : float, default=0.1, range=[0.0, inf)
+        The minimum L0 regularization to use for the split selection.
+    max_l0_fused_regularization : float, default=0.1, range=[0.0, inf)
+        The maximum L0 regularization to use for the split selection.
     relevancy_scorer : TwoVectorFunction, default=f_regression_score
         The function to use to score the relevancy of the features.
     redundancy_matrix : OneVectorFunction, default=absolute_correlation_matrix
@@ -144,6 +150,9 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     )
     min_samples_leaf: int = attrs.field(
         default=1, validator=attrs.validators.ge(0), converter=int
+    )
+    max_leaves: int = attrs.field(
+        default=16, validator=attrs.validators.gt(0), converter=int
     )
     # Functions for scoring and selecting features
     relevancy_scorer: TwoVectorFunction = attrs.field(default=f_regression_score)
@@ -300,8 +309,6 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
                 ]
                 if np.all(np.diff(last_iterations) >= np.finfo(np.float32).eps):
                     break
-        else:
-            model_count = 0
         # Early stopping
         self.score_history_ = self.score_history_[: model_count + 1]
         self.n_estimators = np.argmin(self.score_history_[:, 1])  # type: ignore
@@ -345,6 +352,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             max_l0_fused_regularization=self.max_l0_fused_regularization,
             min_l0_fused_regularization=self.min_l0_fused_regularization,
             learning_rate=self.learning_rate,
+            max_leaves=self.max_leaves,
         )
         new_model.fit(x_passed, y_means, weights, x_validation, y_validation)
         y_pred = new_model.predict(X[:, selected_feature])
@@ -597,9 +605,10 @@ if __name__ == "__main__":
     __main__(
         n_estimators=1_000,
         learning_rate=0.3,
-        l2_regularization=3.0,
+        l2_regularization=1.0,
         random_state=0,
         subsample_type="mini-batch",
         min_l0_fused_regularization=0.0,
-        max_l0_fused_regularization=10.0,
+        max_l0_fused_regularization=100.0,
+        max_leaves=16,
     )

@@ -207,8 +207,10 @@ class ListTreeRegressor:
     ) -> tuple[int, float]:
         slope = self.get_split_count()
         leaves = self.list_tree_.leaf_values
-        penalization = self.l2_regularization * leaves.dot(leaves)
-        fidelity = np.square(self.predict(X) - y).dot(sample_weight)
+        indexes = np.searchsorted(self.list_tree_.split_values, X, side="right")
+        counts = np.bincount(indexes)
+        penalization = self.l2_regularization * np.square(leaves).dot(counts)
+        fidelity = np.square(leaves[indexes] - y).dot(sample_weight)
         intercept = fidelity + penalization
         return slope, intercept  # type: ignore
 
@@ -235,6 +237,7 @@ class ListTreeRegressorCV(ListTreeRegressor):
     l2_regularization: float = attrs.field(default=0.01)
     min_l0_fused_regularization: float = attrs.field(default=0.0)
     max_l0_fused_regularization: float = attrs.field(default=1.0)
+    max_leaves = attrs.field(default=10)
     # Correction parameters
     bias: float = attrs.field(default=0.0)
     learning_rate: float = attrs.field(default=1.0)
@@ -278,11 +281,12 @@ class ListTreeRegressorCV(ListTreeRegressor):
                 a_q, b_q = regressor._get_line(X, y, sample_weight)
 
                 if math.isclose(q * a_q + b_q, q * a_l + b_l, rel_tol=0.05):
-                    if a_q != a_l:
+                    if a_q != a_l and a_q <= self.max_leaves:
                         regressors.append(regressor)
                 else:
                     queue.append((a_q, b_q, a_r, b_r))
-                    queue.append((a_l, b_l, a_q, b_q))
+                    if a_q <= self.max_leaves:
+                        queue.append((a_l, b_l, a_q, b_q))
         cardinality_list = {regressor.get_split_count() for regressor in regressors}
         if left_regressor.get_split_count() not in cardinality_list:
             regressors.append(left_regressor)
