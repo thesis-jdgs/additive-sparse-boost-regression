@@ -1,11 +1,5 @@
 #include <stdlib.h>
 
-#ifdef _WIN32
-#define EXPORT __declspec(dllexport)
-#else
-#define EXPORT
-#endif
-
 /**
  * @brief Calculate piecewise constant approximations using Potts regularization.
  *
@@ -23,7 +17,7 @@
  * @param leaves Output array to store the piecewise constant values.
  * @return The number of leaves in the piecewise approximation.
  */
-EXPORT int l2_potts(
+__declspec(dllexport) int l2_potts(
     double* input_data,
     double* weights,
     const int data_length,
