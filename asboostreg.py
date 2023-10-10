@@ -1,7 +1,6 @@
 """Implement the additive sparse boosting regressor."""
 from __future__ import annotations
 
-import contextlib
 import warnings
 
 import attrs
@@ -16,6 +15,7 @@ from sklearn.model_selection import train_test_split
 
 from model_helpers.custom_types import Data
 from model_helpers.custom_types import OneVectorFunction
+from model_helpers.custom_types import Self
 from model_helpers.custom_types import Target
 from model_helpers.custom_types import TwoVectorFunction
 from model_helpers.mrmr_functions import absolute_correlation_matrix
@@ -27,10 +27,6 @@ from model_helpers.plotting import plot_categorical
 from model_helpers.plotting import plot_continuous
 from model_helpers.preprocessor import TreePreprocessor
 from model_helpers.sample_generators import generator_dict
-
-# Python 3.11 compatibility
-with contextlib.suppress(ImportError):
-    from typing import Self
 
 
 __version__ = "0.0.1"

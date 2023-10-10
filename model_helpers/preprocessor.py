@@ -12,20 +12,17 @@ from sklearn.preprocessing import KBinsDiscretizer
 
 from model_helpers.custom_types import Data
 from model_helpers.custom_types import Target
-
-# Python 3.11 compatibility
-with contextlib.suppress(ImportError):
-    from typing import Self
+from model_helpers.od_tree import Self
 
 
 @attrs.define(slots=False, kw_only=True)
 class EmptyTransformer(BaseEstimator, TransformerMixin):
     """Implement a transformer that does nothing."""
 
-    def fit(self, X: Data, y: Target = None) -> Self:
+    def fit(self, X: Data, y: Target = None) -> Self:  # noqa
         return self
 
-    def transform(self, X: Data) -> np.ndarray:
+    def transform(self, X: Data) -> np.ndarray:  # noqa
         return X
 
     def inverse_transform(self, X: Data) -> np.ndarray:

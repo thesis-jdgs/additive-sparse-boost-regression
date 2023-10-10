@@ -1,7 +1,6 @@
 """Implement a 1D regression tree."""
 from __future__ import annotations
 
-import contextlib
 import math
 from collections import deque
 
@@ -9,12 +8,8 @@ import attrs
 import numpy as np
 from sklearn.metrics import mean_squared_error
 
+from model_helpers.custom_types import Self
 from potts.potts_wrapper import l2_potts
-
-# from model_helpers._od_tree import build_list_tree
-# Python 3.11 feature
-with contextlib.suppress(ImportError):
-    from typing import Self
 
 
 # @nb.njit(
