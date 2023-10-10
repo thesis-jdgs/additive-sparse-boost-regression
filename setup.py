@@ -37,6 +37,8 @@ setuptools.setup(
         setuptools.Extension(
             "potts",
             sources=["potts/l2_potts.c"],
+            extra_compile_args=["-O3", "-ffast-math", "-fPIC"],
+            extra_link_args=["-shared", "-fPIC"],
         )
     ],
     include_dirs=[np.get_include()],
