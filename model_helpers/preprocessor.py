@@ -11,8 +11,8 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import KBinsDiscretizer
 
 from model_helpers.custom_types import Data
+from model_helpers.custom_types import Self
 from model_helpers.custom_types import Target
-from model_helpers.od_tree import Self
 
 
 @attrs.define(slots=False, kw_only=True)
