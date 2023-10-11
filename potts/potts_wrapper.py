@@ -3,6 +3,7 @@ import ctypes
 import platform
 from os.path import abspath
 from os.path import dirname
+from os.path import join
 from typing import Optional
 from typing import Tuple
 
@@ -11,7 +12,7 @@ import numpy as np
 
 os_name = platform.system()
 path = dirname(abspath(__file__))
-clib_path = f"{path}\\l2_potts.dll"
+clib_path = join(path, "l2_potts.dll")
 loader = ctypes.CDLL(clib_path)
 loader.l2_potts.argtypes = (
     np.ctypeslib.ndpointer(dtype=np.float64, ndim=1),  # input

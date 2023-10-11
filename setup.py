@@ -37,4 +37,6 @@ setuptools.setup(
         "Development Status :: 3 - Alpha",
     ],
     py_modules=["asboostreg"],
+    include_package_data=True,
+    package_data={"potts": ["*.dll"]},
 )
