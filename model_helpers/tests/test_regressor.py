@@ -1,13 +1,15 @@
 """Tests for the models to be proper sklearn estimators."""
 import unittest
 
-import xgboost as xgb
+from numpy.testing import assert_array_equal
 from sklearn.base import clone
 from sklearn.datasets import make_regression
 from sklearn.metrics import r2_score
 from sklearn.model_selection import GridSearchCV
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
+
+from asboostreg import SparseAdditiveBoostingRegressor
 
 
 R2_THRESHOLD = 0.5
@@ -28,7 +30,7 @@ def generate_data():
 class TestSparseAdditiveBoostingRegressor(unittest.TestCase):
     def setUp(self):
         self.X, self.y = generate_data()
-        self.regressor = xgb.XGBRegressor()
+        self.regressor = SparseAdditiveBoostingRegressor()
 
     def test_fit(self):
         self.regressor.fit(self.X, self.y)
@@ -48,7 +50,14 @@ class TestSparseAdditiveBoostingRegressor(unittest.TestCase):
         self.regressor.fit(self.X, self.y)
         cloned_regressor = clone(self.regressor)
         self.assertIsNot(self.regressor, cloned_regressor)
-        self.assertEqual(self.regressor.get_params(), cloned_regressor.get_params())
+        self.assertEqual(
+            self.regressor.get_params().keys(),
+            cloned_regressor.get_params().keys(),
+        )
+        for param1, param2 in zip(
+            self.regressor.get_params().values(), cloned_regressor.get_params().values()
+        ):
+            assert_array_equal(param1, param2)
 
     def test_pipeline(self):
         pipeline = Pipeline(
@@ -64,7 +73,7 @@ class TestSparseAdditiveBoostingRegressor(unittest.TestCase):
         param_grid = {
             "n_estimators": [10, 20],
             "learning_rate": [0.1, 0.2],
-            "max_depth": [2, 3],
+            "max_leaves": [4, 5],
         }
         grid_search = GridSearchCV(
             self.regressor,
