@@ -14,6 +14,10 @@ with open("README.md", "r") as fh:
 with open("requirements.txt", "r") as f:
     install_requires = [line.strip() for line in f]
 
+print("Installing the asboostreg package.")
+print("Please check that the following dependencies are installed:")
+print(*install_requires, sep="\n")
+
 setuptools.setup(
     name="asboostreg",
     version=__version__,
