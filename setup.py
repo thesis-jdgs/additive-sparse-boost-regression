@@ -1,5 +1,4 @@
 """Setup file for the asboostreg package."""
-import numpy as np
 import setuptools
 
 from asboostreg import __version__
@@ -33,5 +32,4 @@ setuptools.setup(
         "Operating System :: OS Independent",
         "Development Status :: 3 - Alpha",
     ],
-    include_dirs=[np.get_include()],
 )
