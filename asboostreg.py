@@ -64,9 +64,9 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         The maximum number of leaves to use.
     l2_regularization : float, default=0.1, range=[0.0, inf)
         The L2 regularization to use for the gain.
-    min_l0_fused_regularization : float, default=0.1, range=[0.0, inf)
+    min_l0_fused_regularization : float, default=0.0, range=[0.0, inf)
         The minimum L0 regularization to use for the split selection.
-    max_l0_fused_regularization : float, default=0.1, range=[0.0, inf)
+    max_l0_fused_regularization : float, default=100.0, range=(0.0, inf)
         The maximum L0 regularization to use for the split selection.
     relevancy_scorer : TwoVectorFunction, default=f_regression_score
         The function to use to score the relevancy of the features.

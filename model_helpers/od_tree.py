@@ -283,7 +283,8 @@ class ListTreeRegressorCV(ListTreeRegressor):
                     if a_q <= self.max_leaves:
                         queue.append((a_l, b_l, a_q, b_q))
         cardinality_list = {regressor.get_split_count() for regressor in regressors}
-        if left_regressor.get_split_count() not in cardinality_list:
+        l_n = left_regressor.get_split_count()
+        if l_n <= self.max_leaves and l_n not in cardinality_list:
             regressors.append(left_regressor)
         if right_regressor.get_split_count() not in cardinality_list:
             regressors.append(right_regressor)
