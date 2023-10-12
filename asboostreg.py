@@ -307,7 +307,12 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
                     break
         # Early stopping
         self.score_history_ = self.score_history_[: model_count + 1]
-        self.n_estimators = np.argmin(self.score_history_[:, 1])  # type: ignore
+        best_estimator = np.argmin(self.score_history_[:, 1])  # type: ignore
+        if best_estimator < 1:
+            warnings.warn(f"The model {self} was degenerated to a single function.")
+            self.n_estimators = 1
+        else:
+            self.n_estimators = best_estimator  # type: ignore
         self._regressors = self._regressors[: self.n_estimators]
         self.selection_history_ = self.selection_history_[: self.n_estimators]
         self.selection_count_ = np.unique(self.selection_history_, return_counts=True)[
