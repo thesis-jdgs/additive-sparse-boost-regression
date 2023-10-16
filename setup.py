@@ -9,6 +9,12 @@ from model_helpers import __email__
 from model_helpers import __license__
 from model_helpers import __maintainer__
 
+installer_command = (
+    "cd potts &&"
+    " gcc -c -o l2_potts.o -fPIC -Ofast l2_potts.c  &&"
+    " gcc -shared -o l2_potts.dll l2_potts.o"
+)
+
 
 class L2PottsInstallCommand(setuptools.Command):
     description = "Compile the C code for the L2-Potts."
@@ -21,10 +27,7 @@ class L2PottsInstallCommand(setuptools.Command):
         pass
 
     def run(self):
-        subprocess.run(
-            "cd potts && gcc -c -o l2_potts.o -fPIC -Ofast l2_potts.c", shell=True
-        )
-        subprocess.run("cd potts && gcc -shared -o l2_potts.dll l2_potts.o", shell=True)
+        subprocess.run(installer_command, shell=True)
 
 
 with open("README.md", "r") as fh:
