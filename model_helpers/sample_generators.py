@@ -31,13 +31,22 @@ class DeterministicGenerator(SampleGenerator):
 class BootstrapSampleGenerator(SampleGenerator):
     """Generate bootstrap samples."""
 
+    size: int = attrs.field()
+    fraction: float = attrs.field()
+    random_generator: np.random.Generator = attrs.field()
+    # to set
+    _n_trials: int = attrs.field(init=False, repr=False)
+    _p: float = attrs.field(init=False, repr=False)
+
     def __attrs_post_init__(self):
         self._n_trials = int(self.size * self.fraction)
         self._p = 1 / self.size
 
     def __call__(self) -> np.ndarray:
         """Generate a bootstrap sample."""
-        return self.random_generator.binomial(self._n_trials, self._p, self.size)
+        return self.random_generator.binomial(
+            self._n_trials, self._p, self.size
+        ).astype(np.float64)
 
 
 @attrs.define
@@ -46,7 +55,9 @@ class PoissonSampleGenerator(SampleGenerator):
 
     def __call__(self) -> np.ndarray:
         """Generate a Poisson sample."""
-        return self.random_generator.poisson(self.fraction, self.size)
+        return self.random_generator.poisson(self.fraction, self.size).astype(
+            np.float64
+        )
 
 
 @attrs.define
