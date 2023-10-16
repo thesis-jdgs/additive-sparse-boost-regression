@@ -1,4 +1,6 @@
 """Setup file for the asboostreg package."""
+import subprocess
+
 import setuptools
 
 from asboostreg import __version__
@@ -6,6 +8,23 @@ from model_helpers import __author__
 from model_helpers import __email__
 from model_helpers import __license__
 from model_helpers import __maintainer__
+
+
+class L2PottsInstallCommand(setuptools.Command):
+    description = "Compile the C code for the L2-Potts."
+    user_options = []
+
+    def initialize_options(self):
+        pass
+
+    def finalize_options(self):
+        pass
+
+    def run(self):
+        subprocess.run(
+            "cd potts && gcc -c -o l2_potts.o -fPIC -Ofast l2_potts.c", shell=True
+        )
+        subprocess.run("cd potts && gcc -shared -o l2_potts.dll l2_potts.o", shell=True)
 
 
 with open("README.md", "r") as fh:
@@ -39,4 +58,5 @@ setuptools.setup(
     py_modules=["asboostreg"],
     include_package_data=True,
     package_data={"potts": ["*.dll"]},
+    cmdclass={"install": L2PottsInstallCommand},
 )
