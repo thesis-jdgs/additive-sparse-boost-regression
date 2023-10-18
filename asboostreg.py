@@ -289,6 +289,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         # Initialize redundancy for the next rounds
         redundancy_matrix = self.redundancy_matrix(X).astype(np.float32)
         redundancy = np.zeros_like(X[0])
+        model_count = 0
         for model_count in range(1, self.n_estimators):
             redundancy += redundancy_matrix[self.selection_history_[model_count - 1]]
             self._boost(
