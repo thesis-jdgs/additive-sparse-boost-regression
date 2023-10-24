@@ -29,9 +29,6 @@ from model_helpers.preprocessor import TreePreprocessor
 from model_helpers.sample_generators import generator_dict
 
 
-__version__ = "0.0.1"
-
-
 @attrs.define(slots=False, kw_only=True)
 class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     r"""A sparse generalized additive model with decision trees.
