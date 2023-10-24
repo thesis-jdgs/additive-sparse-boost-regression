@@ -1,11 +1,11 @@
 """Setup file for the asboostreg package."""
 import setuptools
 
-from asboostreg import __version__
 from model_helpers import __author__
 from model_helpers import __email__
 from model_helpers import __license__
 from model_helpers import __maintainer__
+from model_helpers import __version__
 
 
 with open("README.md", "r") as fh:
