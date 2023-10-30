@@ -1,11 +1,13 @@
 """Setup file for the asboostreg package."""
 import setuptools
 
-from asboostreg import __version__
 from model_helpers import __author__
 from model_helpers import __email__
 from model_helpers import __license__
 from model_helpers import __maintainer__
+from model_helpers import __version__
+
+# from Cython.Build import cythonize
 
 
 with open("README.md", "r") as fh:
@@ -39,4 +41,6 @@ setuptools.setup(
     py_modules=["asboostreg"],
     include_package_data=True,
     package_data={"potts": ["*.dll"]},
+    # ext_modules=cythonize("model_helpers/split_reducers.pyx"),
+    # include_dirs=[np.get_include()]
 )

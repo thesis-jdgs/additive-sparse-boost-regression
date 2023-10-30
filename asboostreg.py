@@ -20,6 +20,8 @@ from model_helpers.custom_types import Target
 from model_helpers.custom_types import TwoVectorFunction
 from model_helpers.mrmr_functions import absolute_correlation_matrix
 from model_helpers.mrmr_functions import f_regression_score
+from model_helpers.mrmr_functions import mutual_information_matrix
+from model_helpers.mrmr_functions import safe_divide
 from model_helpers.od_tree import ListTreeRegressor
 from model_helpers.od_tree import ListTreeRegressorCV
 from model_helpers.od_tree import sum_tree_regressors
@@ -28,8 +30,8 @@ from model_helpers.plotting import plot_continuous
 from model_helpers.preprocessor import TreePreprocessor
 from model_helpers.sample_generators import generator_dict
 
-
-__version__ = "0.0.1"
+# from model_helpers.split_reducers import mean_reducer
+# from model_helpers.split_reducers import sum_reducer
 
 
 @attrs.define(slots=False, kw_only=True)
@@ -155,7 +157,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     redundancy_matrix: OneVectorFunction = attrs.field(
         default=absolute_correlation_matrix
     )
-    mrmr_scheme: TwoVectorFunction = attrs.field(default=np.subtract)
+    mrmr_scheme: TwoVectorFunction = attrs.field(default=safe_divide)
+    redundancy_exponent: float = attrs.field(default=1.0, converter=float)
     # Optional information arguments
     categorical_features: list[int] = attrs.field(factory=list)
     output_name: str = attrs.field(default=None)
@@ -288,10 +291,9 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         self._boost(X, residual, 0.0, 0, X_val, residual_valid)
         # Initialize redundancy for the next rounds
         redundancy_matrix = self.redundancy_matrix(X).astype(np.float32)
-        redundancy = np.zeros_like(X[0])
         model_count = 0
         for model_count in range(1, self.n_estimators):
-            redundancy += redundancy_matrix[self.selection_history_[model_count - 1]]
+            redundancy = redundancy_matrix @ (self.selection_count_ != 0.0)
             self._boost(
                 X,
                 residual,
@@ -331,13 +333,33 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     ) -> None:
         """Boost the model by fitting a new function and updating the residual."""
         # Select the best feature
+
         relevancy = self.relevancy_scorer(X, y)
-        score = self.mrmr_scheme(relevancy, redundancy)
+        """
+        prediction_matrix = np.empty(X.shape, y.dtype)
+        models = []
+        for i in range(self._n):
+            x_passed, split, weights = self._get_index(X, i)
+            y_means = np.array([np.mean(y[indices]) for indices in split])
+            model = ListTreeRegressorCV(
+                min_samples_leaf=self.min_samples_leaf,
+                min_l0_fused_regularization=self.min_l0_fused_regularization,
+                max_l0_fused_regularization=self.max_l0_fused_regularization,
+                max_leaves=3,
+            )
+            model.fit(x_passed, y_means, weights, x_passed, y_means)
+            models.append(model)
+            prediction_matrix[:, i] = model.predict(X[:, i])
+        relevancy = f_regression_score(prediction_matrix, y)
+        y_pred = prediction_matrix[:, selected_feature]
+        new_model = models[selected_feature]
+        """
+        score = self.mrmr_scheme(relevancy, redundancy**self.redundancy_exponent)
         selected_feature: int = np.argmax(score)  # type: ignore
         self.selection_history_[model_count] = selected_feature
         self.selection_count_[selected_feature] += 1
         # Model training
-        x_passed, split = self._get_index(X, selected_feature)
+        x_passed, split, _ = self._get_index(X, selected_feature)
         random_weights = self.get_weights()
         validation_weights = random_weights == 0
         while np.all(validation_weights) or np.all(~validation_weights):
@@ -346,6 +368,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         y_weighed = y * random_weights
         y_means = np.array([np.mean(y_weighed[indices]) for indices in split])
         weights = np.array([np.sum(random_weights[indices]) for indices in split])
+        # y_means = mean_reducer(y_weighed, split)
+        # weights = sum_reducer(random_weights, split)
         x_validation = X[validation_weights, selected_feature]
         y_validation = y[validation_weights]
         new_model = ListTreeRegressorCV(
@@ -369,7 +393,9 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         # Update the ensemble
         self._regressors[selected_feature].append(new_model)
 
-    def _get_index(self, X: np.ndarray, feature: int) -> tuple[np.ndarray, np.ndarray]:
+    def _get_index(
+        self, X: np.ndarray, feature: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """Get the ordered indexes of the feature."""
         if self._indexing_cache[feature] is None:
             x = X[:, feature]
@@ -378,7 +404,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             sorted_x = x[sorted_indices]
             split_indices = np.where(np.diff(sorted_x) != 0)[0] + 1
             split = np.split(sorted_indices, split_indices)
-            self._indexing_cache[feature] = (x_passed, split)
+            weights = np.array([len(indices) for indices in split], dtype=np.float64)
+            self._indexing_cache[feature] = (x_passed, split, weights)
         return self._indexing_cache[feature]  # type: ignore
 
     def contribution_frame(self, X: Data) -> pd.DataFrame:
@@ -496,7 +523,6 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             yaxis2_title=f"RMSE {self.output_name}",
         )
         fig.show()
-
         # Plot complexities
         pd.options.plotting.backend = "plotly"
         complexities = pd.Series(
@@ -582,10 +608,10 @@ def __main__(**kwargs) -> None:
     """Run the California housing example."""
     import time
 
-    from sklearn.datasets import fetch_california_housing
+    from pmlb import fetch_data
     from sklearn.model_selection import train_test_split
 
-    X, y = fetch_california_housing(return_X_y=True)
+    X, y = fetch_data("294_satellite_image", return_X_y=True)
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
 
     def evaluate(model):
@@ -600,17 +626,20 @@ def __main__(**kwargs) -> None:
     # Evaluate the model
     model = SparseAdditiveBoostingRegressor(**kwargs)
     evaluate(model)
-    print(model.n_estimators)
 
 
 if __name__ == "__main__":
     __main__(
-        n_estimators=1_000,
-        learning_rate=0.3,
+        n_estimators=1000,
+        learning_rate=0.1,
         l2_regularization=1.0,
         random_state=0,
         subsample_type="mini-batch",
         min_l0_fused_regularization=0.0,
         max_l0_fused_regularization=100.0,
         max_leaves=16,
+        row_subsample=0.1,
+        n_iter_no_change=30,
+        redundancy_exponent=0.5,
+        redundancy_matrix=mutual_information_matrix,
     )

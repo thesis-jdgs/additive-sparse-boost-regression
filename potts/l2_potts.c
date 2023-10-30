@@ -58,7 +58,7 @@ __declspec(dllexport) int l2_potts(
                 cumulative_second_moments[right] - cumulative_second_moments[left] -
                 first_moments_difference*first_moments_difference/
                 (cumulative_weights[right] - cumulative_weights[left] +
-                l2_regularization*(right- left));
+                l2_regularization*(right - left));
             if (deviation > potts_values[right - 1]){
                 break;
             }
@@ -76,7 +76,8 @@ __declspec(dllexport) int l2_potts(
     int leave_count = 0;
     while (right > 0){
         mean = (cumulative_first_moments[right] - cumulative_first_moments[left])/
-            (cumulative_weights[right] - cumulative_weights[left] + l2_regularization*(right- left));
+            (cumulative_weights[right] - cumulative_weights[left] + l2_regularization*
+            (right - left));
         leaves[leave_count] = mean;
         split_indexes[leave_count] = left;
         right = left;

@@ -22,7 +22,7 @@ def f_regression_score(X: np.ndarray, y: np.ndarray) -> np.ndarray:
     np.ndarray
         The f_regression score for each feature.
     """
-    return f_regression(X, y)[0]
+    return f_regression(X, y, center=False)[0]
 
 
 # Redundancy
@@ -43,26 +43,6 @@ def absolute_correlation_matrix(X: np.ndarray) -> np.ndarray:
     C = np.abs(np.corrcoef(X, rowvar=False))
     C[np.diag_indices_from(C)] = 0.0
     return C
-
-
-# mRMR scheme
-def safe_divide(divisor: np.ndarray, dividend: np.ndarray | float) -> np.ndarray:
-    """Divide two arrays, returning zero when the divisor is zero.
-
-    Parameters
-    ----------
-    divisor : np.ndarray
-        The divisor array.
-    dividend : np.ndarray
-        The dividend array. It must have the same shape as the divisor.
-        It can have zero values.
-
-    Returns
-    -------
-    np.ndarray
-        The result of the division. Entries where the dividend is zero are zero.
-    """
-    return np.divide(divisor, dividend, out=np.zeros_like(divisor), where=dividend != 0)
 
 
 def mutual_information_matrix(
@@ -100,3 +80,28 @@ def mutual_information_matrix(
     C = np.exp(C)
     C[np.diag_indices_from(C)] = 0.0
     return C
+
+
+def trivial_redundancy_matrix(X: np.ndarray) -> np.ndarray:
+    C = np.zeros((X.shape[1], X.shape[1]), dtype=float)
+    return C
+
+
+# mRMR scheme
+def safe_divide(divisor: np.ndarray, dividend: np.ndarray | float) -> np.ndarray:
+    """Divide two arrays, returning zero when the divisor is zero.
+
+    Parameters
+    ----------
+    divisor : np.ndarray
+        The divisor array.
+    dividend : np.ndarray
+        The dividend array. It must have the same shape as the divisor.
+        It can have zero values.
+
+    Returns
+    -------
+    np.ndarray
+        The result of the division. Entries where the dividend is zero are zero.
+    """
+    return np.divide(divisor, dividend, out=np.zeros_like(divisor), where=dividend != 0)
