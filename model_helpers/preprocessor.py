@@ -3,7 +3,7 @@ import contextlib
 
 import attrs
 import numpy as np
-from category_encoders.glmm import GLMMEncoder
+from category_encoders.cat_boost import CatBoostEncoder
 from sklearn.base import BaseEstimator
 from sklearn.base import TransformerMixin
 from sklearn.exceptions import NotFittedError
@@ -53,7 +53,10 @@ class TreePreprocessor(BaseEstimator, TransformerMixin):
     def __attrs_post_init__(self) -> None:
         """Initialize all the preprocessor steps."""
         self._imputer = SimpleImputer(strategy="constant", fill_value=self.fill_value)
-        self._categorical_encoder = GLMMEncoder()
+        self._categorical_encoder = CatBoostEncoder(
+            cols=np.where(self.categorical_features)[0].tolist(),
+            random_state=self.random_state,
+        )
         self._discretizer = KBinsDiscretizer(
             n_bins=self.max_bins,
             encode="ordinal",

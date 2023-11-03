@@ -20,7 +20,6 @@ from model_helpers.custom_types import Target
 from model_helpers.custom_types import TwoVectorFunction
 from model_helpers.mrmr_functions import absolute_correlation_matrix
 from model_helpers.mrmr_functions import f_regression_score
-from model_helpers.mrmr_functions import mutual_information_matrix
 from model_helpers.mrmr_functions import safe_divide
 from model_helpers.od_tree import ListTreeRegressor
 from model_helpers.od_tree import ListTreeRegressorCV
@@ -29,9 +28,6 @@ from model_helpers.plotting import plot_categorical
 from model_helpers.plotting import plot_continuous
 from model_helpers.preprocessor import TreePreprocessor
 from model_helpers.sample_generators import generator_dict
-
-# from model_helpers.split_reducers import mean_reducer
-# from model_helpers.split_reducers import sum_reducer
 
 
 @attrs.define(slots=False, kw_only=True)
@@ -176,7 +172,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     _n: int = attrs.field(init=False, repr=False)
     _m: int = attrs.field(init=False, repr=False)
     _is_fitted: bool = attrs.field(init=False, repr=False, default=False)
-    _indexing_cache: list[tuple[np.ndarray, np.ndarray] | None] = attrs.field(
+    _indexing_cache: list[tuple[np.ndarray, ...] | None] = attrs.field(
         init=False, repr=False
     )
 
@@ -333,7 +329,6 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     ) -> None:
         """Boost the model by fitting a new function and updating the residual."""
         # Select the best feature
-
         relevancy = self.relevancy_scorer(X, y)
         """
         prediction_matrix = np.empty(X.shape, y.dtype)
@@ -393,9 +388,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         # Update the ensemble
         self._regressors[selected_feature].append(new_model)
 
-    def _get_index(
-        self, X: np.ndarray, feature: int
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _get_index(self, X: np.ndarray, feature: int) -> tuple[np.ndarray, ...]:
         """Get the ordered indexes of the feature."""
         if self._indexing_cache[feature] is None:
             x = X[:, feature]
@@ -406,7 +399,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             split = np.split(sorted_indices, split_indices)
             weights = np.array([len(indices) for indices in split], dtype=np.float64)
             self._indexing_cache[feature] = (x_passed, split, weights)
-        return self._indexing_cache[feature]  # type: ignore
+        return self._indexing_cache[feature]
 
     def contribution_frame(self, X: Data) -> pd.DataFrame:
         r"""DataFrame of the contribution of each feature for each sample.
@@ -641,5 +634,4 @@ if __name__ == "__main__":
         row_subsample=0.1,
         n_iter_no_change=30,
         redundancy_exponent=0.5,
-        redundancy_matrix=mutual_information_matrix,
     )

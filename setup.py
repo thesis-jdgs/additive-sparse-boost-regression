@@ -8,6 +8,7 @@ from model_helpers import __maintainer__
 from model_helpers import __version__
 
 # from Cython.Build import cythonize
+# import numpy as np
 
 
 with open("README.md", "r") as fh:
