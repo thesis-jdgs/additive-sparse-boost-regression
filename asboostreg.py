@@ -40,6 +40,11 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         The number of estimators to use in the ensemble.
     learning_rate : float, default=0.7, range=(0.0, 1.0]
         The learning rate, that is to say, the shrinkage factor of the estimators.
+    dropout_rate : float, default=0.25, range=(0.0, 1.0]
+        The dropout rate, that is to say, the fraction of estimators to drop at each
+        iteration.
+    dropout_probability : float, default=0.1, range=(0.0, 1.0]
+        The probability of dropping the estimators.
     random_state : int, optional
         The random state to use. It is used for subsampling.
     row_subsample : float, default=0.632, range=(0.0, 1.0]
@@ -105,6 +110,17 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     learning_rate: float = attrs.field(
         default=0.1,
         validator=[attrs.validators.gt(0.0), attrs.validators.le(1.0)],
+        converter=float,
+    )
+    # Dropout Hyper-parameters
+    dropout_rate: float = attrs.field(
+        default=0.25,
+        validator=[attrs.validators.ge(0.0), attrs.validators.le(1.0)],
+        converter=float,
+    )
+    dropout_probability: float = attrs.field(
+        default=0.1,
+        validator=[attrs.validators.ge(0.0), attrs.validators.le(1.0)],
         converter=float,
     )
     # Random Hyper-parameters
@@ -175,6 +191,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     _indexing_cache: list[tuple[np.ndarray, ...] | None] = attrs.field(
         init=False, repr=False
     )
+    _prediction_cache: np.ndarray = attrs.field(init=False, repr=False)
+    _y: np.ndarray = attrs.field(init=False, repr=False)
 
     @selection_history_.default  # type: ignore
     def _set_selection_history(self) -> np.ndarray:
@@ -271,6 +289,10 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         self._n_trials = int(self.row_subsample * self._m)
         self._regressors: list[list[ListTreeRegressor]] = [[] for _ in range(self._n)]
         self._indexing_cache = [None for _ in range(self._n)]
+        self._prediction_cache = np.empty(
+            (self._m, self.n_estimators),
+            dtype=np.float32,
+        )
         self.selection_count_ = np.zeros(self._n, dtype=np.float32)
         self.get_weights = generator_dict[self.subsample_type](
             self._m, self.row_subsample, self._random_generator
@@ -282,6 +304,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         """Run the fitting algorithm."""
         self.intercept_ = np.mean(y)  # type: ignore
         residual = y - self.intercept_
+        self._y = residual.copy()
         residual_valid = y_val - self.intercept_
         # First round
         self._boost(X, residual, 0.0, 0, X_val, residual_valid)
@@ -330,37 +353,32 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         """Boost the model by fitting a new function and updating the residual."""
         # Select the best feature
         relevancy = self.relevancy_scorer(X, y)
-        """
-        prediction_matrix = np.empty(X.shape, y.dtype)
-        models = []
-        for i in range(self._n):
-            x_passed, split, weights = self._get_index(X, i)
-            y_means = np.array([np.mean(y[indices]) for indices in split])
-            model = ListTreeRegressorCV(
-                min_samples_leaf=self.min_samples_leaf,
-                min_l0_fused_regularization=self.min_l0_fused_regularization,
-                max_l0_fused_regularization=self.max_l0_fused_regularization,
-                max_leaves=3,
-            )
-            model.fit(x_passed, y_means, weights, x_passed, y_means)
-            models.append(model)
-            prediction_matrix[:, i] = model.predict(X[:, i])
-        relevancy = f_regression_score(prediction_matrix, y)
-        y_pred = prediction_matrix[:, selected_feature]
-        new_model = models[selected_feature]
-        """
         score = self.mrmr_scheme(relevancy, redundancy**self.redundancy_exponent)
         selected_feature: int = np.argmax(score)  # type: ignore
         self.selection_history_[model_count] = selected_feature
         self.selection_count_[selected_feature] += 1
-        # Model training
+        # Getting X
         x_passed, split, _ = self._get_index(X, selected_feature)
         random_weights = self.get_weights()
         validation_weights = random_weights == 0
         while np.all(validation_weights) or np.all(~validation_weights):
             random_weights = self.get_weights()
             validation_weights = random_weights == 0
-        y_weighed = y * random_weights
+        # Getting y
+        if (
+            model_count > 5
+            and self._random_generator.random() <= self.dropout_probability
+        ):
+            k = int(model_count * (1 - self.dropout_rate))
+            dropout_mask = self._random_generator.choice(model_count, k)
+            y_dropout = self._y - np.sum(
+                self._prediction_cache[:, dropout_mask], axis=1
+            )  # type: ignore
+            learning_rate = self.learning_rate * k / (k + self.learning_rate)
+        else:
+            y_dropout = y
+            learning_rate = self.learning_rate
+        y_weighed = y_dropout * random_weights
         y_means = np.array([np.mean(y_weighed[indices]) for indices in split])
         weights = np.array([np.sum(random_weights[indices]) for indices in split])
         # y_means = mean_reducer(y_weighed, split)
@@ -372,11 +390,12 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             l2_regularization=self.l2_regularization,
             max_l0_fused_regularization=self.max_l0_fused_regularization,
             min_l0_fused_regularization=self.min_l0_fused_regularization,
-            learning_rate=self.learning_rate,
+            learning_rate=learning_rate,
             max_leaves=self.max_leaves,
         )
         new_model.fit(x_passed, y_means, weights, x_validation, y_validation)
         y_pred = new_model.predict(X[:, selected_feature])
+        self._prediction_cache[:, model_count] = y_pred
         y -= y_pred
         # Score the model on the validation set
         y_pred_val = new_model.predict(X_val[:, selected_feature])
@@ -601,10 +620,10 @@ def __main__(**kwargs) -> None:
     """Run the California housing example."""
     import time
 
-    from pmlb import fetch_data
+    from pmlb import fetch_data as load
     from sklearn.model_selection import train_test_split
 
-    X, y = fetch_data("294_satellite_image", return_X_y=True)
+    X, y = load("227_cpu_small", return_X_y=True)
     X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=0)
 
     def evaluate(model):
@@ -619,6 +638,7 @@ def __main__(**kwargs) -> None:
     # Evaluate the model
     model = SparseAdditiveBoostingRegressor(**kwargs)
     evaluate(model)
+    # print feature names in selection order
 
 
 if __name__ == "__main__":
@@ -634,4 +654,6 @@ if __name__ == "__main__":
         row_subsample=0.1,
         n_iter_no_change=30,
         redundancy_exponent=0.5,
+        dropout_rate=0.25,
+        dropout_probability=0.1,
     )

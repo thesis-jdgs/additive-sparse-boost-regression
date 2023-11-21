@@ -327,13 +327,18 @@ class ListTreeRegressorCV(ListTreeRegressor):
         return self
 
 
-def sum_trees(trees: list[ListTree]) -> ListTree:
+def sum_trees(
+    trees: list[ListTree],
+    weights: np.ndarray | None = None,
+) -> ListTree:
     r"""Sum a list of trees together, as piecewise constant functions.
 
     Parameters
     ----------
     trees : list[ListTree]
         The trees to sum.
+    weights : np.ndarray of shape (n_trees,)
+        The weights of the trees.
 
     Returns
     -------
@@ -341,10 +346,16 @@ def sum_trees(trees: list[ListTree]) -> ListTree:
         The sum of the trees.
 
     """
+    if weights is None:
+        weights = np.ones(len(trees), dtype=np.float64)
     merged_splits = np.unique(np.concatenate([tree.split_values for tree in trees]))
     merged_leaves = np.empty(len(merged_splits) + 1, dtype=np.float64)
-    merged_leaves[0] = np.sum([tree.leaf_values[0] for tree in trees])
-    merged_leaves[1:] = np.sum([tree(merged_splits) for tree in trees], axis=0)
+    merged_leaves[0] = np.sum(
+        tree.leaf_values[0] * w for w, tree in zip(weights, trees)
+    )
+    merged_leaves[1:] = np.sum(
+        [tree(merged_splits) * w for w, tree in zip(weights, trees)], axis=0
+    )
     return ListTree(
         split_values=merged_splits,
         leaf_values=merged_leaves,
@@ -353,6 +364,7 @@ def sum_trees(trees: list[ListTree]) -> ListTree:
 
 def sum_tree_regressors(
     regressors: list[ListTreeRegressor],
+    weights: np.ndarray | None = None,
     feature_name: str | None = None,
     output_name: str | None = None,
 ) -> ListTreeRegressor:
@@ -378,13 +390,15 @@ def sum_tree_regressors(
         return ListTreeRegressor(
             is_selected=False, feature_name=feature_name, output_name=output_name
         )
-    tree = sum_trees([regressor.list_tree_ for regressor in regressors])
+    list_trees = [regressor.list_tree_ for regressor in regressors]
+    weights = np.array([t.learning_rate for t in regressors])
+    tree = sum_trees(list_trees, weights)
     first_regressor = regressors[0]
     regressor = ListTreeRegressor(
         min_samples_leaf=first_regressor.min_samples_leaf,
         l2_regularization=first_regressor.l2_regularization,
         l0_fused_regularization=first_regressor.l0_fused_regularization,
-        learning_rate=first_regressor.learning_rate,
+        learning_rate=1.0,
         feature_name=feature_name,
         output_name=output_name,
     )
