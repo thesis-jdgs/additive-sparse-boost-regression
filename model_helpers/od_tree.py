@@ -364,7 +364,6 @@ def sum_trees(
 
 def sum_tree_regressors(
     regressors: list[ListTreeRegressor],
-    weights: np.ndarray | None = None,
     feature_name: str | None = None,
     output_name: str | None = None,
 ) -> ListTreeRegressor:
