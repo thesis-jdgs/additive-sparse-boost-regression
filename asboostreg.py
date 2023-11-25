@@ -190,7 +190,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     selection_count_: np.ndarray = attrs.field(init=False, repr=False)
     # Private attributes
     _regressors: list[list[ListTreeRegressor]] = attrs.field(init=False, repr=False)
-    _flat_regressors: list[ListTreeRegressor] = attrs.field(repr=False, factory=list)
+    _flat_regressors: list[ListTreeRegressor] = attrs.field(init=False, repr=False)
     _random_generator: np.random.Generator = attrs.field(init=False, repr=False)
     _n: int = attrs.field(init=False, repr=False)
     _m: int = attrs.field(init=False, repr=False)
@@ -295,6 +295,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             self.output_name = y.name if isinstance(y, pd.Series) else "output"
         self._n_trials = int(self.row_subsample * self._m)
         self._regressors: list[list[ListTreeRegressor]] = [[] for _ in range(self._n)]
+        self._flat_regressors: list[ListTreeRegressor] = []
         self._indexing_cache = [None for _ in range(self._n)]
         self._prediction_cache = np.empty(
             (self.n_estimators, self._m),
