@@ -40,6 +40,11 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         The number of estimators to use in the ensemble.
     learning_rate : float, default=0.7, range=(0.0, 1.0]
         The learning rate, that is to say, the shrinkage factor of the estimators.
+    dropout : bool, default=False
+        Whether to use dropout or not.
+         If False, then the dropout parameters are ignored.
+         WARNING: Early stopping does not give expected results when dropout is used.
+         You must tune the number of iterations manually.
     dropout_rate : float, default=0.25, range=(0.0, 1.0]
         The dropout rate, that is to say, the fraction of estimators to drop at each
         iteration.
@@ -113,6 +118,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         converter=float,
     )
     # Dropout Hyper-parameters
+    dropout: bool = attrs.field(default=False)
     dropout_rate: float = attrs.field(
         default=0.25,
         validator=[attrs.validators.ge(0.0), attrs.validators.le(1.0)],
@@ -184,6 +190,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     selection_count_: np.ndarray = attrs.field(init=False, repr=False)
     # Private attributes
     _regressors: list[list[ListTreeRegressor]] = attrs.field(init=False, repr=False)
+    _flat_regressors: list[ListTreeRegressor] = attrs.field(repr=False, factory=list)
     _random_generator: np.random.Generator = attrs.field(init=False, repr=False)
     _n: int = attrs.field(init=False, repr=False)
     _m: int = attrs.field(init=False, repr=False)
@@ -290,7 +297,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         self._regressors: list[list[ListTreeRegressor]] = [[] for _ in range(self._n)]
         self._indexing_cache = [None for _ in range(self._n)]
         self._prediction_cache = np.empty(
-            (self._m, self.n_estimators),
+            (self.n_estimators, self._m),
             dtype=np.float32,
         )
         self.selection_count_ = np.zeros(self._n, dtype=np.float32)
@@ -366,15 +373,23 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             validation_weights = random_weights == 0
         # Getting y
         if (
-            model_count > 5
+            self.dropout
+            and model_count * self.dropout_rate > 1
             and self._random_generator.random() <= self.dropout_probability
         ):
-            k = int(model_count * (1 - self.dropout_rate))
-            dropout_mask = self._random_generator.choice(model_count, k)
+            k = int(model_count * self.dropout_rate)
+            models = np.arange(model_count)
+            dropped_mask = self._random_generator.choice(models, k, replace=False)
+            undropped_mask = np.setdiff1d(models, dropped_mask)
             y_dropout = self._y - np.sum(
-                self._prediction_cache[:, dropout_mask], axis=1
+                self._prediction_cache[undropped_mask], axis=0
             )  # type: ignore
-            learning_rate = self.learning_rate * k / (k + self.learning_rate)
+            learning_rate = self.learning_rate / (k + self.learning_rate)
+            shrinkage = k / (k + self.learning_rate)
+            self._prediction_cache[dropped_mask] *= shrinkage
+            for i in dropped_mask:
+                tree = self._flat_regressors[i]
+                tree.learning_rate *= shrinkage
         else:
             y_dropout = y
             learning_rate = self.learning_rate
@@ -395,7 +410,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         )
         new_model.fit(x_passed, y_means, weights, x_validation, y_validation)
         y_pred = new_model.predict(X[:, selected_feature])
-        self._prediction_cache[:, model_count] = y_pred
+        self._prediction_cache[model_count] = y_pred
         y -= y_pred
         # Score the model on the validation set
         y_pred_val = new_model.predict(X_val[:, selected_feature])
@@ -406,6 +421,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         ]
         # Update the ensemble
         self._regressors[selected_feature].append(new_model)
+        self._flat_regressors.append(new_model)
 
     def _get_index(self, X: np.ndarray, feature: int) -> tuple[np.ndarray, ...]:
         """Get the ordered indexes of the feature."""
@@ -643,17 +659,18 @@ def __main__(**kwargs) -> None:
 
 if __name__ == "__main__":
     __main__(
-        n_estimators=1000,
-        learning_rate=0.1,
-        l2_regularization=1.0,
+        n_estimators=300,
+        learning_rate=0.3,
+        l2_regularization=0.07,
         random_state=0,
         subsample_type="mini-batch",
         min_l0_fused_regularization=0.0,
-        max_l0_fused_regularization=100.0,
-        max_leaves=16,
-        row_subsample=0.1,
-        n_iter_no_change=30,
-        redundancy_exponent=0.5,
-        dropout_rate=0.25,
+        max_l0_fused_regularization=1000.0,
+        max_leaves=13,
+        row_subsample=0.8,
+        n_iter_no_change=15,
+        redundancy_exponent=1.63,
+        dropout_rate=0.05,
         dropout_probability=0.1,
+        dropout=False,
     )
