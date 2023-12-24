@@ -350,9 +350,8 @@ def sum_trees(
         weights = np.ones(len(trees), dtype=np.float64)
     merged_splits = np.unique(np.concatenate([tree.split_values for tree in trees]))
     merged_leaves = np.empty(len(merged_splits) + 1, dtype=np.float64)
-    merged_leaves[0] = np.sum(
-        tree.leaf_values[0] * w for w, tree in zip(weights, trees)
-    )
+    first_leave_values = np.array([tree.leaf_values[0] for tree in trees])
+    merged_leaves[0] = np.sum(first_leave_values * weights)
     merged_leaves[1:] = np.sum(
         [tree(merged_splits) * w for w, tree in zip(weights, trees)], axis=0
     )

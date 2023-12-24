@@ -110,10 +110,10 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
 
     # Boosting Hyper-parameters
     n_estimators: int = attrs.field(
-        default=100, validator=attrs.validators.ge(1), converter=int
+        default=320, validator=attrs.validators.ge(1), converter=int
     )
     learning_rate: float = attrs.field(
-        default=0.1,
+        default=0.3,
         validator=[attrs.validators.gt(0.0), attrs.validators.le(1.0)],
         converter=float,
     )
@@ -132,7 +132,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     # Random Hyper-parameters
     random_state: int = attrs.field(default=None)
     row_subsample: float = attrs.field(
-        default=0.632,
+        default=0.7,
         validator=[attrs.validators.gt(0.0), attrs.validators.le(1.0)],
         converter=float,
     )
@@ -152,11 +152,11 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     # Preprocessor Hyper-parameters
     fill_value: float = attrs.field(default=10_000, converter=float)
     max_bins: int = attrs.field(
-        default=256, validator=attrs.validators.gt(0), converter=int
+        default=512, validator=attrs.validators.gt(0), converter=int
     )
     # Tree Hyper-parameters
     l2_regularization: float = attrs.field(
-        default=0.1, validator=attrs.validators.gt(0.0), converter=float
+        default=0.6, validator=attrs.validators.gt(0.0), converter=float
     )
     min_l0_fused_regularization: float = attrs.field(
         default=0.0, validator=attrs.validators.ge(0.0), converter=float
@@ -165,10 +165,10 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         default=100.0, validator=attrs.validators.gt(0.0), converter=float
     )
     min_samples_leaf: int = attrs.field(
-        default=1, validator=attrs.validators.ge(0), converter=int
+        default=8, validator=attrs.validators.ge(0), converter=int
     )
     max_leaves: int = attrs.field(
-        default=16, validator=attrs.validators.gt(0), converter=int
+        default=32, validator=attrs.validators.gt(0), converter=int
     )
     # Functions for scoring and selecting features
     relevancy_scorer: TwoVectorFunction = attrs.field(default=f_regression_score)
