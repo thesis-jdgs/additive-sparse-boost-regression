@@ -440,7 +440,6 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     def contribution_frame(self, X: Data) -> pd.DataFrame:
         r"""DataFrame of the contribution of each feature for each sample.
         Each row is a sample and each column is a feature.
-        The first column is the intercept.
 
         Parameters
         ----------
@@ -449,24 +448,20 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
 
         Returns
         -------
-        contribution : DataFrame of shape (n_samples, n_features + 1)
+        contribution : DataFrame of shape (n_samples, n_features)
             The contribution matrix.
 
         """
         if not self._is_fitted:
             raise NotFittedError(f"{self} cannot predict before calling fit.")
         X_arr = np.ascontiguousarray(self.preprocessor_.transform(X))
-        contribution = np.empty((len(X), self._n + 1), dtype=float)
-        contribution[:, 0] = self.intercept_
-        contribution[:, 1:] = np.array(
+        contribution = np.array(
             [
                 regressor.predict(X_arr[:, i])
                 for i, regressor in enumerate(self.regressors_)
             ]
         ).T
-        contribution_df = pd.DataFrame(
-            contribution, columns=["_asbr_intercept"] + self.feature_names_in_
-        )
+        contribution_df = pd.DataFrame(contribution, columns=self.feature_names_in_)
         return contribution_df
 
     def predict(self, X: Data) -> Target:
