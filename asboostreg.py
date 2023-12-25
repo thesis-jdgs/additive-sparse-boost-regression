@@ -7,6 +7,7 @@ import attrs
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+import shap
 from plotly.subplots import make_subplots
 from sklearn.base import BaseEstimator
 from sklearn.base import RegressorMixin
@@ -437,6 +438,11 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             self._indexing_cache[feature] = (x_passed, split, weights)
         return self._indexing_cache[feature]
 
+    def _validate_fitted(self) -> None:
+        """Validate that the model is fitted."""
+        if not self._is_fitted:
+            raise NotFittedError(f"{self} cannot predict before calling fit.")
+
     def contribution_frame(self, X: Data) -> pd.DataFrame:
         r"""DataFrame of the contribution of each feature for each sample.
         Each row is a sample and each column is a feature.
@@ -452,8 +458,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             The contribution matrix.
 
         """
-        if not self._is_fitted:
-            raise NotFittedError(f"{self} cannot predict before calling fit.")
+        self._validate_fitted()
         X_arr = np.ascontiguousarray(self.preprocessor_.transform(X))
         contribution = np.array(
             [
@@ -463,6 +468,23 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         ).T
         contribution_df = pd.DataFrame(contribution, columns=self.feature_names_in_)
         return contribution_df
+
+    def shap_explain(self, X: Data) -> shap.Explanation:
+        self._validate_fitted()
+        X_arr = np.ascontiguousarray(self.preprocessor_.transform(X))
+        contribution = np.array(
+            [
+                regressor.predict(X_arr[:, i])
+                for i, regressor in enumerate(self.regressors_)
+            ]
+        ).T
+        return shap.Explanation(
+            values=contribution,
+            base_values=self.intercept_,
+            data=X,
+            feature_names=self.feature_names_in_,
+            output_names=[self.output_name],
+        )
 
     def predict(self, X: Data) -> Target:
         r"""Predict the response for the data.
@@ -478,8 +500,7 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             The predicted response.
 
         """
-        if not self._is_fitted:
-            raise NotFittedError(f"{self} cannot predict before calling fit.")
+        self._validate_fitted()
         X_arr = np.ascontiguousarray(self.preprocessor_.transform(X), dtype=np.float32)
         intercept_vector = np.full(len(X), self.intercept_)
         return intercept_vector + np.sum(
@@ -491,21 +512,8 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             axis=0,
         )
 
-    def plot_model_information(self) -> None:
-        r"""Plot the model information that was collected during training.
-        In particular, the plot includes training and validation error,
-         as well as the selected features.
-        Another plot shows the complexity of the model at each feature.
-
-        """
-        if not self._is_fitted:
-            raise NotFittedError(f"{self} cannot plot before calling fit.")
-        # Printing non-selected features
-        non_selected = [
-            model.feature_name for model in self.regressors_ if not model.is_selected
-        ]
-        print(f"The following features were not selected: {non_selected}")
-        # Plot score history
+    def _plot_learning_curve(self) -> None:
+        r"""Plot the learning curve of the model."""
         fig = make_subplots(specs=[[{"secondary_y": True}]])
         training, validation = self.score_history_.T
         iteration_count = np.arange(self.n_estimators)
@@ -547,7 +555,9 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             yaxis2_title=f"RMSE {self.output_name}",
         )
         fig.show()
-        # Plot complexities
+
+    def _plot_complexities(self) -> None:
+        r"""Plot the complexities of each feature."""
         pd.options.plotting.backend = "plotly"
         complexities = pd.Series(
             {
@@ -564,34 +574,32 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         )
         fig.show()
 
-    def explain(self, X: Data) -> None:
-        r"""Explain the model decision at the data X.
-        X can be the training data to explain how the model was built,
-        or can be new data points to explain the model decision at these points.
-
-        Parameters
-        ----------
-        X : Data of shape (n_samples, n_features)
-            The data to explain the model decision at.
+    def plot_model_information(self) -> None:
+        r"""Plot the model information that was collected during training.
+        In particular, the plot includes training and validation error,
+         as well as the selected features.
+        Another plot shows the complexity of the model at each feature.
 
         """
-        if not self._is_fitted:
-            raise NotFittedError(f"{self} cannot plot before calling fit.")
-        selected = [
-            (feature_index, model)
-            for feature_index, model in enumerate(self.regressors_)
-            if model.is_selected
+        self._validate_fitted()
+        non_selected = [
+            model.feature_name for model in self.regressors_ if not model.is_selected
         ]
+        print(f"The following features were not selected: {non_selected}")
+        self._plot_learning_curve()
+        self._plot_complexities()
 
+    def _explain_summary(
+        self,
+        X: Data,
+        selected: list[tuple],
+    ) -> None:
+        r"""Plot the mean importances of each feature."""
         # Plot mean importances
-        X_train = np.ascontiguousarray(X, dtype=np.float32)
-        X_arr = np.ascontiguousarray(self.preprocessor_.transform(X), dtype=np.float32)
         pd.options.plotting.backend = "plotly"
         scores = pd.Series(
             {
-                model.feature_name: model.get_mean_absolute_score(
-                    X_arr[:, feature_index]
-                )
+                model.feature_name: model.get_mean_absolute_score(X[:, feature_index])
                 for feature_index, model in selected
             }
         )
@@ -605,11 +613,17 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         )
         fig.show()
 
-        # Plot importances
+    def _explain_shape_functions(
+        self,
+        X: Data,
+        X_orig: Data,
+        selected: list[tuple],
+    ) -> None:
+        r"""Plot the shape functions of each feature."""
         for feature_index, model in selected:
             if feature_index not in self.categorical_features:
-                x_vals, index = np.unique(X_arr[:, feature_index], return_index=True)
-                x_to_plot = self.preprocessor_.inverse_transform(X_arr[index])[
+                x_vals, index = np.unique(X[:, feature_index], return_index=True)
+                x_to_plot = self.preprocessor_.inverse_transform(X[index])[
                     :, feature_index
                 ]
                 fig = plot_continuous(
@@ -618,14 +632,36 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
                     x_vals,
                 )
             else:
-                x_to_plot = X_train[:, feature_index]
-                x_vals = X_arr[:, feature_index]
+                x_to_plot = X_orig[:, feature_index]
+                x_vals = X[:, feature_index]
                 fig = plot_categorical(
                     model,
                     x_to_plot,
                     x_vals,
                 )
             fig.show()
+
+    def explain(self, X: Data) -> None:
+        r"""Explain the model decision at the data X.
+        X can be the training data to explain how the model was built,
+        or can be new data points to explain the model decision at these points.
+
+        Parameters
+        ----------
+        X : Data of shape (n_samples, n_features)
+            The data to explain the model decision at.
+
+        """
+        self._validate_fitted()
+        selected = [
+            (feature_index, model)
+            for feature_index, model in enumerate(self.regressors_)
+            if model.is_selected
+        ]
+        X_orig = np.ascontiguousarray(X, dtype=np.float32)
+        X_arr = np.ascontiguousarray(self.preprocessor_.transform(X), dtype=np.float32)
+        self._explain_summary(X_arr, selected)
+        self._explain_shape_functions(X_arr, X_orig, selected)
 
 
 def __main__(**kwargs) -> None:
@@ -650,6 +686,8 @@ def __main__(**kwargs) -> None:
     # Evaluate the model
     model = SparseAdditiveBoostingRegressor(**kwargs)
     evaluate(model)
+    model.explain(X_test)
+    model.plot_model_information()
     # print feature names in selection order
 
 
