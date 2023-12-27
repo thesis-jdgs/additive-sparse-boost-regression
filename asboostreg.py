@@ -443,7 +443,11 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         if not self._is_fitted:
             raise NotFittedError(f"{self} cannot predict before calling fit.")
 
-    def contribution_frame(self, X: Data) -> pd.DataFrame:
+    def contribution_frame(
+        self,
+        X: Data,
+        only_selected: bool = False,
+    ) -> pd.DataFrame:
         r"""DataFrame of the contribution of each feature for each sample.
         Each row is a sample and each column is a feature.
 
@@ -451,6 +455,11 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         ----------
         X : Data of shape (n_samples, n_features)
             The data to compute the contribution for.
+        only_selected : bool, default=False
+            Whether to only use the selected features or not.
+            If True, then the features that were not selected are ignored.
+            If False, then the features that were not selected are used with
+            a contribution of 0.
 
         Returns
         -------
@@ -467,9 +476,38 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             ]
         ).T
         contribution_df = pd.DataFrame(contribution, columns=self.feature_names_in_)
+        if only_selected:
+            selected_index = [
+                i
+                for i, regressor in enumerate(self.regressors_)
+                if regressor.is_selected
+            ]
+            return contribution_df.loc[:, self.feature_names_in_[selected_index]]
         return contribution_df
 
-    def shap_explain(self, X: Data) -> shap.Explanation:
+    def shap_explain(
+        self,
+        X: Data,
+        only_selected: bool = False,
+    ) -> shap.Explanation:
+        r"""Explain the model decision at the data X using a SHAP explanation.
+
+        Parameters
+        ----------
+        X : Data of shape (n_samples, n_features)
+            The data to explain the model decision at.
+        only_selected : bool, default=False
+            Whether to only use the selected features or not.
+            If True, then the features that were not selected are ignored.
+            If False, then the features that were not selected are used with
+            a contribution of 0.
+
+        Returns
+        -------
+        explanation : shap.Explanation
+            The SHAP explanation of the model decision at the data X.
+
+        """
         self._validate_fitted()
         X_arr = np.ascontiguousarray(self.preprocessor_.transform(X))
         contribution = np.array(
@@ -478,10 +516,19 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
                 for i, regressor in enumerate(self.regressors_)
             ]
         ).T
+        data = X
+        if only_selected:
+            selected_index = [
+                i
+                for i, regressor in enumerate(self.regressors_)
+                if regressor.is_selected
+            ]
+            contribution = contribution[:, selected_index]
+            data = data[:, selected_index]
         return shap.Explanation(
             values=contribution,
             base_values=self.intercept_,
-            data=X,
+            data=data,
             feature_names=self.feature_names_in_,
             output_names=[self.output_name],
         )
