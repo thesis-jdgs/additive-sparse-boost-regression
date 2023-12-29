@@ -31,16 +31,29 @@ from model_helpers.preprocessor import TreePreprocessor
 from model_helpers.sample_generators import generator_dict
 
 
+_MAGIC_CATBOOST_CONSTANTS = [0.189, -4.383, -0.623, 1.439]
+
+
+def _is_auto_or_float(_, attribute, value):
+    if isinstance(value, str) and value.lower() == "auto":
+        return True
+    elif isinstance(value, (int, float)):
+        return 0.0 < value <= 1.0
+    else:
+        raise ValueError(f"Invalid value for {attribute.name}: {value}")
+
+
 @attrs.define(slots=False, kw_only=True)
 class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     r"""A sparse generalized additive model with decision trees.
 
     Parameters
     ----------
-    n_estimators : int, default=100, range=[0, inf)
+    n_estimators : int, default=320, range=[0, inf)
         The number of estimators to use in the ensemble.
-    learning_rate : float, default=0.7, range=(0.0, 1.0]
+    learning_rate : float or "auto", default=0.3, range=(0.0, 1.0]
         The learning rate, that is to say, the shrinkage factor of the estimators.
+        If "auto", then the learning rate is automatically tuned.
     dropout : bool, default=False
         Whether to use dropout or not.
          If False, then the dropout parameters are ignored.
@@ -53,25 +66,25 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         The probability of dropping the estimators.
     random_state : int, optional
         The random state to use. It is used for subsampling.
-    row_subsample : float, default=0.632, range=(0.0, 1.0]
+    row_subsample : float, default=0.7, range=(0.0, 1.0]
         The fraction of rows to subsample on each iteration.
     subsample_type : str, default="mini-batch",
         choices=["mini-batch", "bootstrap", "poisson", None]
         The type of subsampling to use. If None, no subsampling is used.
-    validation_fraction : float, default=0.2, range=(0.0, 1.0]
+    validation_fraction : float, default=0.1, range=(0.0, 1.0]
         The fraction of rows to use for validation in case
         validation_set is not provided to the fit method.
-    n_iter_no_change : int, default=5, range=[0, inf)
+    n_iter_no_change : int, default=10, range=[0, inf)
         The number of iterations without improvement to wait before stopping.
     fill_value : float, default=10_000
         The value to use to fill the missing values.
-    max_bins: int, default=256
+    max_bins: int, default=512
         The maximum number of bins to use for discretization.
-    min_samples_leaf : int, default=1, range=[1, inf)
+    min_samples_leaf : int, default=8, range=[1, inf)
         The minimum number of samples to be a leaf.
-    max_leaves : int, default=16, range=[0, inf)
+    max_leaves : int, default=32, range=[0, inf)
         The maximum number of leaves to use.
-    l2_regularization : float, default=0.1, range=[0.0, inf)
+    l2_regularization : float, default=0.6, range=[0.0, inf)
         The L2 regularization to use for the gain.
     min_l0_fused_regularization : float, default=0.0, range=[0.0, inf)
         The minimum L0 regularization to use for the split selection.
@@ -113,10 +126,10 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
     n_estimators: int = attrs.field(
         default=320, validator=attrs.validators.ge(1), converter=int
     )
-    learning_rate: float = attrs.field(
+    learning_rate: float | str = attrs.field(
         default=0.3,
-        validator=[attrs.validators.gt(0.0), attrs.validators.le(1.0)],
-        converter=float,
+        validator=[_is_auto_or_float],
+        converter=lambda value: float(value) if value != "auto" else value,
     )
     # Dropout Hyper-parameters
     dropout: bool = attrs.field(default=False)
@@ -306,6 +319,32 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
         self.get_weights = generator_dict[self.subsample_type](
             self._m, self.row_subsample, self._random_generator
         )
+        if self.learning_rate == "auto":
+            (
+                iter_count_coeff,
+                iter_count_const,
+                dataset_size_coeff,
+                dataset_size_const,
+            ) = _MAGIC_CATBOOST_CONSTANTS
+            custom_iteration_constant = np.exp(
+                iter_count_coeff * np.log(self.n_estimators) + iter_count_const
+            )
+            default_iteration_constant = np.exp(
+                iter_count_coeff * np.log(1000) + iter_count_const
+            )
+            default_learning_rate = np.exp(
+                dataset_size_coeff * np.log(self._n) + dataset_size_const
+            )
+            learning_rate = min(
+                default_learning_rate
+                * custom_iteration_constant
+                / default_iteration_constant,
+                0.5,
+            )
+            learning_rate = round(learning_rate, 6)
+            self.learning_rate_ = learning_rate
+        else:
+            self.learning_rate_ = float(self.learning_rate)
 
     def _fit(
         self, X: np.ndarray, y: np.ndarray, X_val: np.ndarray, y_val: np.ndarray
@@ -386,15 +425,15 @@ class SparseAdditiveBoostingRegressor(BaseEstimator, RegressorMixin):
             y_dropout = self._y - np.sum(
                 self._prediction_cache[undropped_mask], axis=0
             )  # type: ignore
-            learning_rate = self.learning_rate / (k + self.learning_rate)
-            shrinkage = k / (k + self.learning_rate)
+            learning_rate = self.learning_rate_ / (k + self.learning_rate_)
+            shrinkage = k / (k + self.learning_rate_)
             self._prediction_cache[dropped_mask] *= shrinkage
             for i in dropped_mask:
                 tree = self._flat_regressors[i]
                 tree.learning_rate *= shrinkage
         else:
             y_dropout = y
-            learning_rate = self.learning_rate
+            learning_rate = self.learning_rate_
         y_weighed = y_dropout * random_weights
         y_means = np.array([np.mean(y_weighed[indices]) for indices in split])
         weights = np.array([np.sum(random_weights[indices]) for indices in split])
@@ -741,7 +780,7 @@ def __main__(**kwargs) -> None:
 if __name__ == "__main__":
     __main__(
         n_estimators=300,
-        learning_rate=0.3,
+        learning_rate="auto",
         l2_regularization=0.07,
         random_state=0,
         subsample_type="mini-batch",
